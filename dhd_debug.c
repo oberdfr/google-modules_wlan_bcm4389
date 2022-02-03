@@ -206,11 +206,6 @@ dhd_dbg_urgent_pull(dhd_pub_t *dhdp, dhd_dbg_ring_t *ring)
 			__FUNCTION__, pending_len, ring->threshold, pktlog_ring->pktcount));
 	}
 
-	if (!dhd_pktlog_is_enabled(dhdp)) {
-		dhd_os_dbg_urgent_pullreq(dhdp->dbg->private, ring->id);
-		return 0;
-	}
-
 	return pending_len;
 }
 #endif /* DHD_PKT_LOGGING_DBGRING */
@@ -353,6 +348,10 @@ dhd_dbg_pull_from_pktlog(dhd_pub_t *dhdp, int ring_id, void *data, uint32 buf_le
 	r_entry = (dhd_dbg_ring_entry_t *)data;
 	r_entry->len = buf_len - DBG_RING_ENTRY_SIZE;
 	written_bytes = (uint32)r_entry->len;
+	if (!written_bytes) {
+		return 0;
+	}
+
 	r_entry->type = DBG_RING_ENTRY_DATA_TYPE;
 	r_entry->flags = (DBG_RING_ENTRY_FLAGS_HAS_TIMESTAMP |
 		DBG_RING_ENTRY_FLAGS_HAS_BINARY);
@@ -2297,6 +2296,7 @@ dhd_dbg_monitor_get_tx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 	tx_report = dhdp->dbg->pkt_mon.tx_report;
 	tx_pkt = tx_report->tx_pkts;
 	pkt_count = MIN(req_count, tx_report->status_pos);
+	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 
 #ifdef CONFIG_COMPAT
 	if (is_compat_task()) {
@@ -2352,7 +2352,6 @@ dhd_dbg_monitor_get_tx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 	}
 	*resp_count = pkt_count;
 
-	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 	if (!pkt_count) {
 		DHD_ERROR(("%s(): no tx_status in tx completion messages, "
 			"make sure that 'd11status' is enabled in firmware, "
@@ -2396,6 +2395,7 @@ dhd_dbg_monitor_get_rx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 	rx_report = dhdp->dbg->pkt_mon.rx_report;
 	rx_pkt = rx_report->rx_pkts;
 	pkt_count = MIN(req_count, rx_report->pkt_pos);
+	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 
 #ifdef CONFIG_COMPAT
 	if (is_compat_task()) {
@@ -2441,7 +2441,6 @@ dhd_dbg_monitor_get_rx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 	}
 
 	*resp_count = pkt_count;
-	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 
 	return BCME_OK;
 }
