@@ -2619,7 +2619,7 @@ _wl_cfg80211_check_axi_error(struct bcm_cfg80211 *cfg)
 struct wireless_dev *
 wl_cfg80211_add_if(struct bcm_cfg80211 *cfg,
 	struct net_device *primary_ndev,
-	wl_iftype_t wl_iftype, const char *name, u8 *mac)
+	wl_iftype_t wl_iftype, const char *name, const u8 *mac)
 {
 	u8 mac_addr[ETH_ALEN];
 	s32 err = -ENODEV;
@@ -3844,7 +3844,7 @@ wl_cfg80211_post_ifcreate(struct net_device *ndev,
 		new_ndev->ieee80211_ptr = wdev;
 		SET_NETDEV_DEV(new_ndev, wiphy_dev(wdev->wiphy));
 
-		memcpy(new_ndev->dev_addr, addr, ETH_ALEN);
+		__dev_addr_set(new_ndev, addr, ETH_ALEN);
 		if (wl_cfg80211_register_if(cfg, event->ifidx, new_ndev, rtnl_lock_reqd)
 			!= BCME_OK) {
 			WL_ERR(("IFACE register failed \n"));
