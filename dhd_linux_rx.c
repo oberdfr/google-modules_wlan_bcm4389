@@ -158,6 +158,8 @@
 #include <dhd_wlfc.h>
 #endif
 
+#include <net/ndisc.h>
+
 #include <wl_android.h>
 
 /* RX frame thread priority */
