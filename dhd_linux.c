@@ -3452,15 +3452,9 @@ int dhd_sendup(dhd_pub_t *dhdp, int ifidx, void *p)
 			}
 			skbprev = skb;
 		} else {
-			/* If the receive is not processed inside an ISR,
-			 * the softirqd must be woken explicitly to service
-			 * the NET_RX_SOFTIRQ.	In 2.6 kernels, this is handled
-			 * by netif_rx_ni(), but in earlier kernels, we need
-			 * to do it manually.
-			 */
 			bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 				__FUNCTION__, __LINE__);
-			netif_rx_ni(skb);
+			netif_rx(skb);
 		}
 	}
 
@@ -3745,15 +3739,12 @@ dhd_schedule_delayed_dpc_on_dpc_cpu(dhd_pub_t *dhdp, ulong delay)
 
 #ifdef SHOW_LOGTRACE
 static void
-dhd_netif_rx_ni(struct sk_buff * skb)
+dhd_netif_rx(struct sk_buff * skb)
 {
 	/* Do not call netif_recieve_skb as this workqueue scheduler is
-	 * not from NAPI Also as we are not in INTR context, do not call
-	 * netif_rx, instead call netif_rx_ni (for kerenl >= 2.6) which
-	 * does netif_rx, disables irq, raise NET_IF_RX softirq and
-	 * enables interrupts back
+	 * not from NAPI
 	 */
-	netif_rx_ni(skb);
+	netif_rx(skb);
 }
 
 static int
@@ -3880,7 +3871,7 @@ dhd_event_logtrace_process_items(dhd_info_t *dhd)
 			}
 #endif /* PCIE_FULL_DONGLE */
 			/* Send pkt UP */
-			dhd_netif_rx_ni(skb);
+			dhd_netif_rx(skb);
 		} else	{
 			/* Don't send up. Free up the packet. */
 			PKTFREE_CTRLBUF(dhdp->osh, skb, FALSE);
@@ -4136,7 +4127,7 @@ dhd_sendup_info_buf(dhd_pub_t *dhdp, uint8 *msg)
 		skb = PKTTONATIVE(dhdp->osh, pkt);
 		skb->dev = dhd->iflist[0]->net;
 		/* Send pkt UP */
-		dhd_netif_rx_ni(skb);
+		dhd_netif_rx(skb);
 	}
 }
 #endif /* EWP_EDL */
@@ -15231,11 +15222,7 @@ dhd_sendup_log(dhd_pub_t *dhdp, void *data, int data_len)
 		bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 			__FUNCTION__, __LINE__);
 		/* Send the packet */
-		if (in_interrupt()) {
-			netif_rx(skb);
-		} else {
-			netif_rx_ni(skb);
-		}
+		netif_rx(skb);
 	} else {
 		/* Could not allocate a sk_buf */
 		DHD_ERROR(("%s: unable to alloc sk_buf", __FUNCTION__));

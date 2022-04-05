@@ -234,7 +234,7 @@ static inline void* dhd_rxf_dequeue(dhd_pub_t *dhdp)
 	dhdp->skbbuf[sent_idx] = NULL;
 	dhdp->sent_idx = (sent_idx + 1) & (MAXSKBPEND - 1);
 
-	DHD_TRACE(("dhd_rxf_dequeue: netif_rx_ni(%p), sent idx %d\n",
+	DHD_TRACE(("dhd_rxf_dequeue: netif_rx(%p), sent idx %d\n",
 		skb, sent_idx));
 
 	dhd_os_rxfunlock(dhdp);
@@ -1009,13 +1009,6 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 					PKTSETNEXT(dhdp->osh, skbprev, skb);
 				skbprev = skb;
 			} else {
-
-				/* If the receive is not processed inside an ISR,
-				 * the softirqd must be woken explicitly to service
-				 * the NET_RX_SOFTIRQ.	In 2.6 kernels, this is handled
-				 * by netif_rx_ni(), but in earlier kernels, we need
-				 * to do it manually.
-				 */
 				bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 					__FUNCTION__, __LINE__);
 
@@ -1034,7 +1027,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 				netif_receive_skb(skb);
 #endif /* ENABLE_DHD_GRO */
 #else /* !defined(DHD_LB_RXP) */
-				netif_rx_ni(skb);
+				netif_rx(skb);
 #endif /* !defined(DHD_LB_RXP) */
 			}
 		}
@@ -1095,7 +1088,7 @@ dhd_rxf_thread(void *data)
 				PKTSETNEXT(pub->osh, skb, NULL);
 				bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 					__FUNCTION__, __LINE__);
-				netif_rx_ni(skb);
+				netif_rx(skb);
 				skb = skbnext;
 			}
 #if defined(WAIT_DEQUEUE)
@@ -1142,7 +1135,7 @@ dhd_sched_rxf(dhd_pub_t *dhdp, void *skb)
 			PKTSETNEXT(dhdp->osh, skbp, NULL);
 			bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 				__FUNCTION__, __LINE__);
-			netif_rx_ni(skbp);
+			netif_rx(skbp);
 			skbp = skbnext;
 		}
 		DHD_ERROR(("send skb to kernel backlog without rxf_thread\n"));
@@ -1289,22 +1282,13 @@ dhd_rx_mon_pkt(dhd_pub_t *dhdp, host_rxbuf_cmpl_t* msg, void *pkt, int ifidx)
 	PKTPUSH(dhd->pub.osh, dhd->monitor_skb, ETHER_HDR_LEN);
 
 	/* XXX WL here makes sure data is 4-byte aligned? */
-	if (in_interrupt()) {
+	if (in_interrupt())
 		bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 			__FUNCTION__, __LINE__);
-		netif_rx(dhd->monitor_skb);
-	} else {
-		/* If the receive is not processed inside an ISR,
-		 * the softirqd must be woken explicitly to service
-		 * the NET_RX_SOFTIRQ.	In 2.6 kernels, this is handled
-		 * by netif_rx_ni(), but in earlier kernels, we need
-		 * to do it manually.
-		 */
+	else
 		bcm_object_trace_opr(dhd->monitor_skb, BCM_OBJDBG_REMOVE,
 			__FUNCTION__, __LINE__);
-
-		netif_rx_ni(dhd->monitor_skb);
-	}
+	netif_rx(dhd->monitor_skb);
 
 	dhd->monitor_skb = NULL;
 }
