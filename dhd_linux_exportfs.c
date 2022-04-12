@@ -2234,6 +2234,7 @@ static struct attribute *default_file_attrs[] = {
 	&dhd_attr_sig_path.attr,
 	NULL
 };
+ATTRIBUTE_GROUPS(default_file);
 
 /*
  * wifi kobject show function, the "attr" attribute specifices to which
@@ -2290,7 +2291,7 @@ static struct sysfs_ops dhd_sysfs_ops = {
 
 static struct kobj_type dhd_ktype = {
 	.sysfs_ops = &dhd_sysfs_ops,
-	.default_attrs = default_file_attrs,
+	.default_groups = default_file_groups,
 };
 
 /*
@@ -2691,6 +2692,7 @@ static struct attribute *debug_lb_attrs[] = {
 	&dhd_tx_cpu.attr,
 	NULL
 };
+ATTRIBUTE_GROUPS(debug_lb);
 
 #define to_dhd_lb(k) container_of(k, struct dhd_info, dhd_lb_kobj)
 
@@ -2749,7 +2751,7 @@ static struct sysfs_ops dhd_sysfs_lb_ops = {
 
 static struct kobj_type dhd_lb_ktype = {
 	.sysfs_ops = &dhd_sysfs_lb_ops,
-	.default_attrs = debug_lb_attrs,
+	.default_groups = debug_lb_groups,
 };
 #endif /* DHD_LB */
 
