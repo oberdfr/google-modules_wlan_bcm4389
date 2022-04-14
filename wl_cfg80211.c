@@ -2823,7 +2823,7 @@ exit:
 struct wireless_dev *
 wl_cfg80211_add_if(struct bcm_cfg80211 *cfg,
 	struct net_device *primary_ndev,
-	wl_iftype_t wl_iftype, const char *name, u8 *mac)
+	wl_iftype_t wl_iftype, const char *name, const u8 *mac)
 {
 	struct wireless_dev *wdev = NULL;
 	mutex_lock(&cfg->if_sync);
