@@ -1,7 +1,7 @@
 /*
  * Platform Dependent file for usage of Preallocted Memory
  *
- * Copyright (C) 2021, Broadcom.
+ * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -112,7 +112,7 @@
 		((WLAN_MAX_PKTID_IOCTL_ITEMS+1) * WLAN_DHD_PKTID_IOCTL_MAP_ITEM_SIZE))
 
 #define DHD_LOG_DUMP_BUF_SIZE	(1024 * 1024 * 4)
-#define DHD_LOG_DUMP_BUF_EX_SIZE	(1024 * 1024 * 2)
+#define DHD_LOG_DUMP_BUF_EX_SIZE	(1024 * 8)
 
 #define DHD_PKTLOG_DUMP_BUF_SIZE	(64 * 1024)
 
@@ -291,8 +291,13 @@ dhd_init_wlan_mem(void)
 
 	for (i = 0; i < PREALLOC_WLAN_SEC_NUM; i++) {
 		if (wlan_mem_array[i].size > 0) {
+#ifdef CONFIG_BCMDHD_SDIO
 			wlan_mem_array[i].mem_ptr =
 				kmalloc(wlan_mem_array[i].size, GFP_KERNEL);
+#else
+			wlan_mem_array[i].mem_ptr =
+				kvmalloc(wlan_mem_array[i].size, GFP_KERNEL);
+#endif /* CONFIG_BCMDHD_SDIO */
 
 			if (!wlan_mem_array[i].mem_ptr) {
 				pr_err("Failed to mem_alloc for WLAN\n");
@@ -429,7 +434,11 @@ dhd_exit_wlan_mem(void)
 
 	for (i = 0; i < PREALLOC_WLAN_SEC_NUM; i++) {
 		if (wlan_mem_array[i].mem_ptr) {
+#ifdef CONFIG_BCMDHD_SDIO
 			kfree(wlan_mem_array[i].mem_ptr);
+#else
+			kvfree(wlan_mem_array[i].mem_ptr);
+#endif /* CONFIG_BCMDHD_SDIO */
 		}
 	}
 

@@ -1,7 +1,7 @@
 /*
  * DHD debugability Linux os layer
  *
- * Copyright (C) 2021, Broadcom.
+ * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -257,8 +257,9 @@ dhd_os_start_logging(dhd_pub_t *dhdp, char *ring_name, int log_level,
 	if (!VALID_RING(ring_id))
 		return BCME_UNSUPPORTED;
 
-	DHD_LOG_MEM(("%s , log_level : %d, time_intval : %d, threshod %d Bytes\n",
-		__FUNCTION__, log_level, time_intval, threshold));
+	DHD_ERROR(("%s , ring_id : %d log_level : %d, "
+			"time_intval : %d, threshod %d Bytes\n",
+			__FUNCTION__, ring_id, log_level, time_intval, threshold));
 
 	/* change the configuration */
 	ret = dhd_dbg_set_configuration(dhdp, ring_id, log_level, flags, threshold);
@@ -541,9 +542,12 @@ dhd_os_dbg_attach(dhd_pub_t *dhdp)
 	int ring_id;
 
 	/* os_dbg data */
-	os_priv = MALLOCZ(dhdp->osh, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
-	if (!os_priv)
+	os_priv = VMALLOCZ(dhdp->osh, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
+	if (!os_priv) {
+		DHD_ERROR(("%s:%d: VMALLOC failed for os_priv, size %d\n", __FUNCTION__,
+			__LINE__, (uint32)sizeof(*os_priv) * DEBUG_RING_ID_MAX));
 		return BCME_NOMEM;
+	}
 
 	for (ring_id = DEBUG_RING_ID_INVALID + 1; ring_id < DEBUG_RING_ID_MAX;
 	     ring_id++) {
@@ -554,8 +558,9 @@ dhd_os_dbg_attach(dhd_pub_t *dhdp)
 	}
 
 	ret = dhd_dbg_attach(dhdp, dhd_os_dbg_pullreq, dhd_os_dbg_urgent_notifier, os_priv);
-	if (ret)
-		MFREE(dhdp->osh, os_priv, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
+	if (ret) {
+		VMFREE(dhdp->osh, os_priv, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
+	}
 
 	return ret;
 }
@@ -577,7 +582,7 @@ dhd_os_dbg_detach(dhd_pub_t *dhdp)
 			cancel_delayed_work_sync(&ring_info->work);
 		}
 	}
-	MFREE(dhdp->osh, os_priv, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
+	VMFREE(dhdp->osh, os_priv, sizeof(*os_priv) * DEBUG_RING_ID_MAX);
 
 	return dhd_dbg_detach(dhdp);
 }

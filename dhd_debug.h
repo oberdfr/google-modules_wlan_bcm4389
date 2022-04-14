@@ -1,7 +1,7 @@
 /*
  * DHD debugability header file
  *
- * Copyright (C) 2021, Broadcom.
+ * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -85,6 +85,9 @@ enum {
 
 #define DEBUG_DUMP_RING2_NAME		"debug_dump2_"
 #define DEBUG_DUMP_RING2_SIZE		(2 * 1024 * 1024)
+
+#define MEM_DUMP_RING_NAME		"mem_dump"
+#define MEM_DUMP_RING_SIZE		(3 * 1024 * 1024)
 
 #define DHD_DEBUG_DUMP_NETLINK_MAX	(1024 * 8)
 #define DHD_DEBUG_DUMP_MAX_SYNC_CNT	5u
