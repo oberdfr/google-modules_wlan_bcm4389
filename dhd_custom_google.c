@@ -776,10 +776,6 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 	uint64 curr_time_ns;
 	uint64 time_delta_ns;
 
-	if (last_resched_cnt_check_time_ns != 0 &&
-		IRQ_AFFINITY_SMALL_CORE == IRQ_AFFINITY_BIG_CORE)
-		return;
-
 	if (resched > 0) {
 		resched_streak++;
 		return;
@@ -952,6 +948,7 @@ int dhd_plat_pcie_resume(void *plat_info)
 {
 	int ret = 0;
 	ret = exynos_pcie_pm_resume(pcie_ch_num);
+	is_irq_on_big_core = true;
 	return ret;
 }
 
