@@ -837,7 +837,11 @@ uint fis_enab = FALSE;
 int
 dhd_sssr_mempool_init(dhd_pub_t *dhd)
 {
+#ifdef CONFIG_BCMDHD_PCIE
+	dhd->sssr_mempool = (uint8 *) VMALLOCZ(dhd->osh, DHD_SSSR_MEMPOOL_SIZE);
+#else
 	dhd->sssr_mempool = (uint8 *) MALLOCZ(dhd->osh, DHD_SSSR_MEMPOOL_SIZE);
+#endif /* CONFIG_BCMDHD_PCIE */
 	if (dhd->sssr_mempool == NULL) {
 		DHD_ERROR(("%s: MALLOC of sssr_mempool failed\n",
 			__FUNCTION__));
@@ -850,7 +854,11 @@ void
 dhd_sssr_mempool_deinit(dhd_pub_t *dhd)
 {
 	if (dhd->sssr_mempool) {
+#ifdef CONFIG_BCMDHD_PCIE
+		VMFREE(dhd->osh, dhd->sssr_mempool, DHD_SSSR_MEMPOOL_SIZE);
+#else
 		MFREE(dhd->osh, dhd->sssr_mempool, DHD_SSSR_MEMPOOL_SIZE);
+#endif /* CONFIG_BCMDHD_PCIE */
 		dhd->sssr_mempool = NULL;
 	}
 }
@@ -1950,6 +1958,28 @@ dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifidx, wl_ioctl_t *ioc, void *buf, int len)
 #ifdef DHD_PCIE_RUNTIMEPM
 		dhdpcie_runtime_bus_wake(dhd_pub, TRUE, dhd_wl_ioctl);
 #endif /* DHD_PCIE_RUNTIMEPM */
+
+#ifdef OEM_ANDROID
+		/*
+		 * If system suspend started before ioctl, after getting d3 ack,
+		 * it will check for wakelock and as ioctl will hold wakelock,
+		 * it will put bus back to d0 and bail out.
+		 * So the current ioctl should wait till it is bailed out.
+		 */
+		if (DHD_BUS_BUSY_CHECK_SUSPEND_IN_PROGRESS(dhd_pub)) {
+			int timeleft = 0;
+			DHD_PRINT(("%s: wait till system suspend bails out\n", __FUNCTION__));
+			/* wait till SUSPEND_IN_PROGRESS bit is cleared */
+			timeleft = dhd_os_busbusy_wait_bitmask(dhd_pub,
+					&dhd_pub->dhd_bus_busy_state,
+					DHD_BUS_BUSY_SUSPEND_IN_PROGRESS, 0);
+			if ((dhd_pub->dhd_bus_busy_state & DHD_BUS_BUSY_SUSPEND_IN_PROGRESS) != 0) {
+				DHD_ERROR(("%s: system suspend wait timed out(%d)"
+					" dhd_bus_busy_state=0x%x\n", __FUNCTION__, timeleft,
+					dhd_pub->dhd_bus_busy_state));
+			}
+		}
+#endif /* OEM_ANDROID */
 
 		DHD_LINUX_GENERAL_LOCK(dhd_pub, flags);
 		if (DHD_BUS_CHECK_SUSPEND_OR_ANY_SUSPEND_IN_PROGRESS(dhd_pub) ||

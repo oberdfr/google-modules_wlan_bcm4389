@@ -151,14 +151,20 @@ sku_info_t sku_table[] = {
 	{ {"G8V0U"}, {"MMW"} },
 	{ {"GFQM1"}, {"MMW"} },
 	{ {"GB62Z"}, {"MMW"} },
+	{ {"GE2AE"}, {"MMW"} },
+	{ {"GQML3"}, {"MMW"} },
 	{ {"GB7N6"}, {"ROW"} },
 	{ {"GLU0G"}, {"ROW"} },
 	{ {"GNA8F"}, {"ROW"} },
 	{ {"GX7AS"}, {"ROW"} },
+	{ {"GP4BC"}, {"ROW"} },
+	{ {"GVU6C"}, {"ROW"} },
 	{ {"GR1YH"}, {"JPN"} },
 	{ {"GF5KQ"}, {"JPN"} },
 	{ {"GPQ72"}, {"JPN"} },
 	{ {"GB17L"}, {"JPN"} },
+	{ {"GFE4J"}, {"JPN"} },
+	{ {"G03Z5"}, {"JPN"} },
 	{ {"G1AZG"}, {"EU"} }
 };
 
@@ -700,7 +706,11 @@ int dhd_plat_pcie_register_event(void *plat_info, struct pci_dev *pdev, dhd_pcie
 		}
 		g_pfn = pfn;
 		p->pdev = pdev;
+#ifdef CPL_TIMEOUT_RECOVERY
+		p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN | EXYNOS_PCIE_EVENT_CPL_TIMEOUT;
+#else
 		p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN;
+#endif /* CPL_TIMEOUT_RECOVERY */
 		p->pcie_event.user = pdev;
 		p->pcie_event.mode = EXYNOS_PCIE_TRIGGER_CALLBACK;
 		p->pcie_event.callback = plat_pcie_notify_cb;
