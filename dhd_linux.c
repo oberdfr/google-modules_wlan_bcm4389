@@ -485,6 +485,7 @@ static void dhd_ifadd_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_ifdel_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event);
+static void dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event);
 #ifdef BCM_ROUTER_DHD
 static void dhd_inform_dhd_monitor_handler(void *handle, void *event_info, u8 event);
 #endif
@@ -3432,6 +3433,36 @@ dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event)
 done:
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 	dhd_net_if_unlock_local(dhd);
+}
+
+static void
+dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
+{
+	struct net_device *net = event_info;
+
+	if (event != DHD_WQ_WORK_NDEV_UPD_FEATURES) {
+		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
+		return;
+	}
+	if (!net) {
+		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
+		return;
+	}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_lock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
+	netdev_update_features(net);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_unlock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
+}
+
+static void
+dhd_ndev_upd_features(dhd_info_t *dhd, struct net_device *net)
+{
+	dhd_deferred_schedule_work(dhd->dhd_deferred_wq, (void *)net,
+		DHD_WQ_WORK_NDEV_UPD_FEATURES, dhd_ndev_upd_features_handler,
+		DHD_WQ_WORK_PRIORITY_HIGH);
 }
 
 static void
@@ -7151,7 +7182,7 @@ dhd_open(struct net_device *net)
 #endif /* DHD_LB_TXP */
 		dhd->dhd_lb_candidacy_override = FALSE;
 #endif /* DHD_LB */
-		netdev_update_features(net);
+		dhd_ndev_upd_features(dhd, net);
 #ifdef DHD_PM_OVERRIDE
 		g_pm_override = FALSE;
 #endif /* DHD_PM_OVERRIDE */
