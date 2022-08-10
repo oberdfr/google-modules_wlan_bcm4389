@@ -6276,6 +6276,9 @@ static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
 		ret = wl_android_priv_cmd(net, ifr);
 		dhd_check_hang(net, &dhd->pub, ret);
 		break;
+	case SIOCETHTOOL:
+		ret = dhd_ethtool(dhd, (void *)data);
+		break;
 	default:
 		ret = -EOPNOTSUPP;
 	}
@@ -6286,6 +6289,7 @@ done:
 }
 
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 /* XXX For the moment, local ioctls will return BCM errors */
 /* XXX Others return linux codes, need to be changed... */
 /**
@@ -6297,55 +6301,9 @@ done:
 static int
 dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 {
-	dhd_info_t *dhd = DHD_DEV_INFO(net);
-	int ifidx;
-	int ret;
-
-	if (atomic_read(&exit_in_progress)) {
-		DHD_ERROR(("%s module exit in progress\n", __func__));
-		ret = BCME_DONGLE_DOWN;
-		return OSL_ERROR(ret);
-	}
-
-	DHD_OS_WAKE_LOCK(&dhd->pub);
-
-	/* Interface up check for built-in type */
-	if (!dhd_download_fw_on_driverload && dhd->pub.up == FALSE) {
-		DHD_ERROR(("%s: Interface is down\n", __func__));
-		ret = OSL_ERROR(BCME_NOTUP);
-		goto done;
-	}
-
-	ifidx = dhd_net2idx(dhd, net);
-	DHD_TRACE(("%s: ifidx %d, cmd 0x%04x\n", __func__, ifidx, cmd));
-
-#if defined(WL_STATIC_IF)
-	/* skip for static ndev when it is down */
-	if (dhd_is_static_ndev(&dhd->pub, net) && !(net->flags & IFF_UP)) {
-		DHD_ERROR(("%s: exit: static ndev\n", __func__));
-		ret = -1;
-		goto done;
-	}
-#endif /* WL_STATIC_iF */
-
-	if (ifidx == DHD_BAD_IF) {
-		DHD_ERROR(("%s: BAD IF\n", __func__));
-		ret = -1;
-		goto done;
-	}
-
-	switch (cmd) {
-	case SIOCETHTOOL:
-		ret = dhd_ethtool(dhd, (void *)ifr->ifr_data);
-		break;
-	default:
-		ret = -EOPNOTSUPP;
-	}
-
-done:
-	DHD_OS_WAKE_UNLOCK(&dhd->pub);
-	return ret;
+	return dhd_siocdevprivate(net, ifr, ifr->ifr_data, cmd);
 }
+#endif
 
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
 /* Flags to indicate if we distingish power off policy when
@@ -6420,6 +6378,7 @@ dhd_siocdevprivate_wrapper(struct net_device *net, struct ifreq *ifr,
 	return error;
 }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 static int
 dhd_ioctl_entry_wrapper(struct net_device *net, struct ifreq *ifr, int cmd)
 {
@@ -6439,6 +6398,7 @@ dhd_ioctl_entry_wrapper(struct net_device *net, struct ifreq *ifr, int cmd)
 
 	return error;
 }
+#endif
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(DHD_TCP_LIMIT_OUTPUT)
@@ -8123,8 +8083,11 @@ static struct net_device_ops dhd_ops_pri = {
 	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry,
+#else
 	.ndo_siocdevprivate = dhd_siocdevprivate,
+#endif
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
@@ -8145,12 +8108,18 @@ static struct net_device_ops dhd_ops_virt = {
 #endif
 	.ndo_get_stats = dhd_get_stats,
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry_wrapper,
+#else
 	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
+#endif
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry,
+#else
 	.ndo_siocdevprivate = dhd_siocdevprivate,
+#endif
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
