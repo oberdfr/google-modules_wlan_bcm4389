@@ -133,6 +133,8 @@ DHDCFLAGS += -DDHD_SBN
 
 # Enable inband device wake feature
 DHDCFLAGS += -DPCIE_INB_DW
+# Enable DS ack extended wait
+DHDCFLAGS += -DPCIE_INB_DSACK_EXT_WAIT
 
 # Prioritize ARP
 DHDCFLAGS += -DPRIORITIZE_ARP
@@ -217,7 +219,7 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 # Enable FIS Dump
 #	DHDCFLAGS += -DDHD_FIS_DUMP
 # Enable System Debug Trace Controller, Embedded Trace Buffer
-	DHDCFLAGS += -DDHD_SDTC_ETB_DUMP
+#	DHDCFLAGS += -DDHD_SDTC_ETB_DUMP
 # Enable SMD/Minidump collection
 	DHDCFLAGS += -DD2H_MINIDUMP
 # ROT and Scan timeout debugging due to Kernel scheduling problem
@@ -279,9 +281,9 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 # WLBR Regon coordinator
 	DHDCFLAGS += -DWBRC
 # DPC bounds
-        DHDCFLAGS += -DDHD_TX_CPL_BOUND=2048
-        DHDCFLAGS += -DDHD_TX_POST_BOUND=256
-        DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=1024
+        DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
+        DHDCFLAGS += -DDHD_TX_POST_BOUND=128
+        DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
         DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=64
 endif
 
@@ -382,9 +384,9 @@ DHDCFLAGS += -DWL_P2P_RAND
 #Custom Mapping of DSCP to User Priority
 DHDCFLAGS += -DWL_CUSTOM_MAPPING_OF_DSCP
 # Enable below define for production
-ifneq ($(CONFIG_SOC_GOOGLE),)
-#DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
-endif
+# ifneq ($(CONFIG_SOC_GOOGLE),)
+# DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
+# endif
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_WAKE_STATUS
 endif
@@ -470,6 +472,7 @@ DHDCFLAGS += -DEXPLICIT_DISCIF_CLEANUP
 DHDCFLAGS += -DSKIP_WLFC_ON_CONCURRENT
 DHDCFLAGS += -DCUSTOM_BLOCK_DEAUTH_AT_EAP_FAILURE
 DHDCFLAGS += -DTDLS_MSG_ONLY_WFD
+DHDCFLAGS += -DCUSTOM_EVENT_PM_WAKE_MEMDUMP_DISABLED
 # Custom tuning value
 DHDCFLAGS += -DCUSTOM_ROAM_TIME_THRESH_IN_SUSPEND=6000
 DHDCFLAGS += -DCUSTOM_EVENT_PM_WAKE=30
@@ -721,6 +724,9 @@ ifneq ($(filter y, $(CONFIG_BCM4389)),)
   DHDCFLAGS += -DWL_5P9G
   # UNII-4 channel filter for non-sta roles
   DHDCFLAGS += -DWL_UNII4_CHAN
+  # Use xorcsum sync retry count one with DMA indices
+  # enabled to detect cache coherency issue in host
+  #DHDCFLAGS += -DPCIE_D2H_SYNC_RETRY_CNT_ONE
 endif
 
 # For 4389 and 43752

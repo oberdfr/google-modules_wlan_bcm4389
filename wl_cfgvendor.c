@@ -1462,8 +1462,15 @@ static int wl_cfgvendor_set_rssi_monitor(struct wiphy *wiphy,
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	int8 max_rssi = 0, min_rssi = 0;
 	const struct nlattr *iter;
+	struct net_device *ndev = wdev_to_ndev(wdev);
 
-	if (!wl_get_drv_status(cfg, CONNECTED, wdev_to_ndev(wdev))) {
+	/* Limit rssi monitoring only on primary interface */
+	if (!IS_INET_LINK_NDEV(cfg, ndev)) {
+		WL_ERR(("rssi monitor query requested on non primary interface\n"));
+		return BCME_UNSUPPORTED;
+	}
+
+	if (!wl_get_drv_status(cfg, CONNECTED, ndev)) {
 		WL_ERR(("Sta is not connected to an AP, rssi monitoring is not allowed\n"));
 		return -EINVAL;
 	}
@@ -1482,8 +1489,7 @@ static int wl_cfgvendor_set_rssi_monitor(struct wiphy *wiphy,
 		}
 	}
 
-	if (dhd_dev_set_rssi_monitor_cfg(bcmcfg_to_prmry_ndev(cfg),
-	       start, max_rssi, min_rssi) < 0) {
+	if (dhd_dev_set_rssi_monitor_cfg(ndev, start, max_rssi, min_rssi) < 0) {
 		WL_ERR(("Could not set rssi monitor cfg\n"));
 		err = -EINVAL;
 	}
@@ -1903,6 +1909,43 @@ wl_cfgvendor_latency_mode_config(struct wiphy *wiphy,
 #endif /* WL_LATENCY_MODE */
 
 #ifdef RTT_SUPPORT
+bool wl_check_wdev(struct wireless_dev *wdev)
+{
+	struct bcm_cfg80211 *cfg = NULL;
+	cfg = wl_cfg80211_get_bcmcfg();
+
+	if (!wdev) {
+		WL_ERR(("wdev is null\n"));
+		return BCME_ERROR;
+	}
+
+	/* g_bcmcfg is set when the primary interface up
+	 * compare the wdev as parameter with g_bcmcfg->wdev
+	 * to detect whether the wdev is corrupted or not
+	 */
+	if (!cfg) {
+		WL_ERR(("cfg is null\n"));
+		return BCME_ERROR;
+	}
+
+	if (!cfg->wdev) {
+		WL_ERR(("cfg->wdev is null\n"));
+		return BCME_ERROR;
+	}
+
+	/* if the wdev param is valid address it will print and hexdump */
+	if (cfg->wdev->wiphy != wdev->wiphy) {
+		WL_ERR(("wiphy is not the same with wiphy "
+			"cfg->wdev:%px wdev:%px "
+			"cfg->wdev->wiphy:%px wdev->wiphy:%px\n",
+			cfg->wdev, wdev, cfg->wdev->wiphy, wdev->wiphy));
+		prhex("wdev hexdump", (const u8 *)wdev, sizeof(struct wireless_dev));
+		return BCME_ERROR;
+	}
+
+	return BCME_OK;
+}
+
 void
 wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 {
@@ -1919,6 +1962,11 @@ wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 	wiphy = wdev->wiphy;
 
 	WL_DBG(("In\n"));
+	if (wl_check_wdev(wdev)) {
+		WL_ERR(("Invalid wdev\n"));
+		return;
+	}
+
 	/* Push the data to the skb */
 	if (!rtt_data) {
 		WL_ERR(("rtt_data is NULL\n"));
@@ -2094,6 +2142,11 @@ wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 	bzero(&rtt_param, sizeof(rtt_param));
 
 	WL_DBG(("In\n"));
+	if (wl_check_wdev(wdev)) {
+		WL_ERR(("Invalid wdev\n"));
+		goto exit;
+	}
+
 	err = dhd_dev_rtt_register_noti_callback(wdev->netdev, wdev, wl_cfgvendor_rtt_evt);
 	if (err < 0) {
 		WL_ERR(("failed to register rtt_noti_callback\n"));
@@ -7533,7 +7586,11 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				goto exit;
 			}
 			radio_h_v2[i].radio = radio_v2->radio;
-			radio_h_v2[i].on_time = radio_v2->on_time;
+			if (radio_v2->radio != WL_RADIOSTAT_SLICE_INDEX_SCAN) {
+				radio_h_v2[i].on_time = radio_v2->on_time;
+			} else {
+				radio_h_v2[i].on_time = 0;
+			}
 			radio_h_v2[i].tx_time = radio_v2->tx_time;
 			radio_h_v2[i].num_tx_levels = 0;
 			radio_h_v2[i].tx_time_per_levels = NULL;
@@ -7542,7 +7599,12 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #else
 			radio_h_v2[i].rx_time = radio_v2->rx_time;
 #endif /* LINKSTAT_EXT_SUPPORT  */
-			radio_h_v2[i].on_time_scan = (uint32)(radio_v2->on_time_scan / 1000);
+			if (radio_v2->radio != WL_RADIOSTAT_SLICE_INDEX_SCAN) {
+				radio_h_v2[i].on_time_scan =
+					(uint32)(radio_v2->on_time_scan / 1000);
+			} else {
+				radio_h_v2[i].on_time_scan = 0;
+			}
 			radio_h_v2[i].on_time_nbd = (uint32)(radio_v2->on_time_nbd / 1000);
 			radio_h_v2[i].on_time_gscan = (uint32)(radio_v2->on_time_gscan / 1000);
 			radio_h_v2[i].on_time_roam_scan = radio_v2->on_time_roam_scan;
@@ -7577,7 +7639,11 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			}
 			radio_v1 = (wifi_radio_stat_v1_t *)iovar_buf;
 			radio_h.rx_time = radio_v1->rx_time;
-			radio_h.on_time = radio_v1->on_time;
+			if (radio_v1->radio != WL_RADIOSTAT_SLICE_INDEX_SCAN) {
+				radio_h.on_time = radio_v1->on_time;
+			} else {
+				radio_h.on_time = 0;
+			}
 			radio_h.tx_time = radio_v1->tx_time;
 			radio_h.on_time_nbd = radio_v1->on_time_nbd;
 			radio_h.on_time_gscan = radio_v1->on_time_gscan;
@@ -8766,7 +8832,7 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 	struct nlmsghdr *nlh;
 	struct bcm_cfg80211 *cfg;
 	if (ndev == NULL || ndev->ieee80211_ptr == NULL) {
-		WL_ERR(("no device for debug ring\n"));
+		WL_CONS_ONLY(("no device for debug ring id:%d\n", ring_id));
 		return;
 	}
 	kflags = in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
@@ -8775,7 +8841,7 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 
 	/* If wifi hal is not start, don't send event to wifi hal */
 	if (!cfg->hal_started) {
-		WL_ERR(("Hal is not started\n"));
+		WL_CONS_ONLY(("Hal is not started id:%d\n", ring_id));
 		return;
 	}
 	/* Alloc the SKB for vendor_event */
@@ -8789,7 +8855,7 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 #endif /* (defined(CONFIG_ARCH_MSM) && defined(SUPPORT_WDEV_CFG80211_VENDOR_EVENT_ALLOC)) || */
 		/* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0) */
 	if (!skb) {
-		WL_ERR(("skb alloc failed\n"));
+		WL_CONS_ONLY(("skb alloc failed id:%d\n", ring_id));
 		return;
 	}
 	/* Set halpid for sending unicast event to wifi hal */
@@ -9520,6 +9586,13 @@ static int wl_cfgvendor_start_mkeep_alive(struct wiphy *wiphy, struct wireless_d
 	uint32 period_msec = 0;
 	const struct nlattr *iter;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_device *ndev = wdev_to_ndev(wdev);
+
+	/* Limit keep alive only on primary interface */
+	if (!IS_INET_LINK_NDEV(cfg, ndev)) {
+		WL_ERR(("keep alive query requested on non primary interface\n"));
+		return BCME_UNSUPPORTED;
+	}
 
 	nla_for_each_attr(iter, data, len, rem) {
 		type = nla_type(iter);
@@ -9584,7 +9657,7 @@ static int wl_cfgvendor_start_mkeep_alive(struct wiphy *wiphy, struct wireless_d
 		goto exit;
 	}
 
-	ret = wl_cfg80211_start_mkeep_alive(cfg, mkeep_alive_id,
+	ret = wl_cfg80211_start_mkeep_alive(ndev, cfg, mkeep_alive_id,
 		ether_type, ip_pkt, ip_pkt_len, src_mac, dst_mac, period_msec);
 	if (ret < 0) {
 		WL_ERR(("start_mkeep_alive is failed ret: %d\n", ret));
@@ -9610,6 +9683,13 @@ static int wl_cfgvendor_stop_mkeep_alive(struct wiphy *wiphy, struct wireless_de
 	uint8 mkeep_alive_id = 0;
 	const struct nlattr *iter;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_device *ndev = wdev_to_ndev(wdev);
+
+	/* Limit keep alive only on primary interface */
+	if (!IS_INET_LINK_NDEV(cfg, ndev)) {
+		WL_ERR(("keep alive query requested on non primary interface\n"));
+		return BCME_UNSUPPORTED;
+	}
 
 	nla_for_each_attr(iter, data, len, rem) {
 		type = nla_type(iter);
@@ -9624,7 +9704,7 @@ static int wl_cfgvendor_stop_mkeep_alive(struct wiphy *wiphy, struct wireless_de
 		}
 	}
 
-	ret = wl_cfg80211_stop_mkeep_alive(cfg, mkeep_alive_id);
+	ret = wl_cfg80211_stop_mkeep_alive(ndev, cfg, mkeep_alive_id);
 	if (ret < 0) {
 		WL_ERR(("stop_mkeep_alive is failed ret: %d\n", ret));
 	}
@@ -10250,7 +10330,7 @@ wl_cfgvendor_tx_power_scenario(struct wiphy *wiphy,
 				goto exit;
 		}
 	}
-	WL_DBG(("SAR: sar_mode %d airplane_mode %d\n", sar_tx_power_val, airplane_mode));
+	WL_DBG_MEM(("SAR: sar_mode %d airplane_mode %d\n", sar_tx_power_val, airplane_mode));
 	err = wldev_iovar_setint(wdev_to_ndev(wdev), "fccpwrlimit2g", airplane_mode);
 	if (unlikely(err)) {
 		WL_ERR(("SAR: Failed to set airplane_mode - error (%d)\n", err));

@@ -571,6 +571,12 @@ enum dhd_bus_ds_state {
 	DW_DEVICE_HOST_WAKE_WAIT	= 7,
 	DW_DEVICE_DS_D3_INFORM_WAIT	= 8
 };
+#ifdef PCIE_INB_DSACK_EXT_WAIT
+/* DS ack timeout is 3sec, FW retry count is 5.
+ * 5times * 3sec = 15sec.
+ */
+#define DW_DS_ACK_RETRY_THRESHOLD		15u
+#endif /* PCIE_INB_DSACK_EXT_WAIT */
 #endif /* PCIE_INB_DW */
 
 enum dhd_prealloc_index {
@@ -647,7 +653,9 @@ enum dhd_dongledump_type {
 	DUMP_TYPE_INVALID_SHINFO_NRFRAGS	= 33,
 	DUMP_TYPE_P2P_DISC_BUSY			= 34,
 	DUMP_TYPE_CONT_EXCESS_PM_AWAKE		= 35,
-	DUMP_TYPE_DONGLE_TRAP_DURING_WIFI_ONOFF	= 36
+	DUMP_TYPE_DONGLE_TRAP_DURING_WIFI_ONOFF	= 36,
+	DUMP_TYPE_BY_DSACK_HC_DUE_TO_ISR_DELAY	= 37,
+	DUMP_TYPE_BY_DSACK_HC_DUE_TO_DPC_DELAY	= 38
 };
 
 enum dhd_hang_reason {
@@ -1371,6 +1379,8 @@ typedef struct dhd_pub {
 	bool	smmu_fault_occurred;	/* flag to indicate SMMU Fault */
 	bool	p2p_disc_busy_occurred;
 	bool	dongle_trap_during_wifi_onoff;	/* flag to indicate trap during wifi on/off */
+	bool	dsack_hc_due_to_isr_delay;	/* flag to indicate DSACK HC by ISR delay */
+	bool	dsack_hc_due_to_dpc_delay;	/* flag to indicate DSACK HC by DPC delay */
 /*
  * Add any new variables to track Bus errors above
  * this line. Also ensure that the variable is
@@ -2259,6 +2269,7 @@ extern void dhd_os_oob_irq_wake_unlock(dhd_pub_t *pub);
  * It can be adjusted depending on the host platform.
  */
 #define DHD_PACKET_TIMEOUT_MS	100
+#define DHD_HANDSHAKE_TIMEOUT_MS       1000
 #define DHD_EVENT_TIMEOUT_MS	1500
 #define SCAN_WAKE_LOCK_TIMEOUT	10000
 #define MAX_TX_TIMEOUT			100

@@ -6918,6 +6918,8 @@ dhd_open(struct net_device *net)
 
 	DHD_OS_WAKE_LOCK(&dhd->pub);
 	dhd->pub.dongle_trap_occured = 0;
+	dhd->pub.dsack_hc_due_to_isr_delay = 0;
+	dhd->pub.dsack_hc_due_to_dpc_delay = 0;
 	dhd->pub.dongle_trap_during_wifi_onoff = 0;
 	dhd->pub.hang_was_sent = 0;
 	dhd->pub.hang_was_pending = 0;
@@ -9889,6 +9891,8 @@ dhd_bus_start(dhd_pub_t *dhdp)
 	DHD_TRACE(("Enter %s:\n", __FUNCTION__));
 	dhdp->memdump_type = 0;
 	dhdp->dongle_trap_occured = 0;
+	dhd->pub.dsack_hc_due_to_isr_delay = 0;
+	dhd->pub.dsack_hc_due_to_dpc_delay = 0;
 	dhdp->dongle_trap_during_wifi_onoff = 0;
 #ifdef DHD_SSSR_DUMP
 	dhdp->collect_sssr = FALSE;
@@ -15669,6 +15673,8 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 	if (flag) {
 		/* Clear some flags for recovery logic */
 		dhd->pub.dongle_trap_occured = 0;
+		dhd->pub.dsack_hc_due_to_isr_delay = 0;
+		dhd->pub.dsack_hc_due_to_dpc_delay = 0;
 		dhd->pub.iovar_timeout_occured = 0;
 #ifdef PCIE_FULL_DONGLE
 		dhd->pub.d3ack_timeout_occured = 0;
@@ -16608,16 +16614,24 @@ int
 dhd_dev_set_rssi_monitor_cfg(struct net_device *dev, int start,
              int8 max_rssi, int8 min_rssi)
 {
-	int err;
+	int err, ifidx;
 	wl_rssi_monitor_cfg_t rssi_monitor;
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
+
+
+	ifidx = dhd_net2idx(dhd, dev);
+	if (ifidx == DHD_BAD_IF) {
+		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
+		err = -ENODEV;
+		return err;
+	}
 
 	rssi_monitor.version = RSSI_MONITOR_VERSION_1;
 	rssi_monitor.max_rssi = max_rssi;
 	rssi_monitor.min_rssi = min_rssi;
 	rssi_monitor.flags = start ? 0: RSSI_MONITOR_STOP;
-	err = dhd_iovar(&dhd->pub, 0, "rssi_monitor", (char *)&rssi_monitor, sizeof(rssi_monitor),
-			NULL, 0, TRUE);
+	err = dhd_iovar(&dhd->pub, ifidx, "rssi_monitor", (char *)&rssi_monitor,
+			sizeof(rssi_monitor), NULL, 0, TRUE);
 	if (err < 0 && err != BCME_UNSUPPORTED) {
 		DHD_ERROR(("%s : Failed to execute rssi_monitor %d\n", __FUNCTION__, err));
 	}
@@ -19052,6 +19066,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	char pc_fn[DHD_FUNC_STR_LEN] = "\0";
 	char lr_fn[DHD_FUNC_STR_LEN] = "\0";
 	trap_t *tr;
+	uint32 memdump_type;
 #endif /* DHD_COREDUMP */
 
 	DHD_ERROR(("%s: ENTER \n", __FUNCTION__));
@@ -19152,15 +19167,28 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 #ifdef DHD_COREDUMP
 	memset_s(dhdp->memdump_str, DHD_MEMDUMP_LONGSTR_LEN, 0, DHD_MEMDUMP_LONGSTR_LEN);
-	dhd_convert_memdump_type_to_str(dhdp->memdump_type, dhdp->memdump_str,
+
+	if (dhdp->dsack_hc_due_to_isr_delay) {
+		memdump_type = DUMP_TYPE_BY_DSACK_HC_DUE_TO_ISR_DELAY;
+	} else if (dhdp->dsack_hc_due_to_dpc_delay) {
+		memdump_type = DUMP_TYPE_BY_DSACK_HC_DUE_TO_DPC_DELAY;
+	} else {
+		memdump_type = dhdp->memdump_type;
+	}
+
+	dhd_convert_memdump_type_to_str(memdump_type, dhdp->memdump_str,
 		DHD_MEMDUMP_LONGSTR_LEN, dhdp->debug_dump_subcmd);
+
 	if (dhdp->memdump_type == DUMP_TYPE_DONGLE_TRAP &&
 		dhdp->dongle_trap_occured == TRUE) {
-		tr = &dhdp->last_trap_info;
-		dhd_lookup_map(dhdp->osh, map_path,
-			ltoh32(tr->epc), pc_fn, ltoh32(tr->r14), lr_fn);
-		sprintf(&dhdp->memdump_str[strlen(dhdp->memdump_str)], "_%.79s_%.79s",
-				pc_fn, lr_fn);
+		if (!dhdp->dsack_hc_due_to_isr_delay &&
+				!dhdp->dsack_hc_due_to_dpc_delay) {
+			tr = &dhdp->last_trap_info;
+			dhd_lookup_map(dhdp->osh, map_path,
+					ltoh32(tr->epc), pc_fn, ltoh32(tr->r14), lr_fn);
+			sprintf(&dhdp->memdump_str[strlen(dhdp->memdump_str)],
+				"_%.79s_%.79s", pc_fn, lr_fn);
+		}
 	}
 	DHD_ERROR(("%s: dump reason: %s\n", __FUNCTION__, dhdp->memdump_str));
 
@@ -21719,6 +21747,7 @@ dhd_print_tasklet_status(dhd_pub_t *dhd)
 	}
 
 	DHD_ERROR(("DHD Tasklet status : 0x%lx\n", dhdinfo->tasklet.state));
+	DHD_ERROR(("DPC thread thr_pid: %ld\n", dhdinfo->thr_dpc_ctl.thr_pid));
 }
 
 #if defined(DHD_MQ) && defined(DHD_MQ_STATS)
@@ -23239,6 +23268,11 @@ dhd_schedule_cto_recovery(dhd_pub_t *dhdp)
 	if (dhdp->up == FALSE) {
 		DHD_ERROR(("%s : skip scheduling cto because dhd is not up\n",
 				__FUNCTION__));
+		return;
+	}
+
+	if (dhdp->info->scheduled_memdump) {
+		DHD_ERROR(("%s, memdump in progress\n", __FUNCTION__));
 		return;
 	}
 
