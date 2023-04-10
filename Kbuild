@@ -284,7 +284,7 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
         DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
         DHDCFLAGS += -DDHD_TX_POST_BOUND=128
         DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
-        DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=64
+        DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=8
 endif
 
 ifneq ($(CONFIG_FIB_RULES),)
@@ -384,9 +384,9 @@ DHDCFLAGS += -DWL_P2P_RAND
 #Custom Mapping of DSCP to User Priority
 DHDCFLAGS += -DWL_CUSTOM_MAPPING_OF_DSCP
 # Enable below define for production
-# ifneq ($(CONFIG_SOC_GOOGLE),)
-# DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
-# endif
+ifneq ($(CONFIG_SOC_GOOGLE),)
+DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
+endif
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_WAKE_STATUS
 endif
@@ -538,7 +538,9 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_USE_STATIC_CTRLBUF
 #Use coherent pool
 	DHDCFLAGS += -DDHD_USE_COHERENT_MEM_FOR_RING
+ifeq ($(CONFIG_SOC_GS201),)
 	DHDCFLAGS += -DDHD_ALLOC_COHERENT_MEM_FROM_ATOMIC_POOL
+endif
 # Runtime PM feature
 	DHDCFLAGS += -DDHD_PCIE_RUNTIMEPM -DMAX_IDLE_COUNT=5
 
@@ -907,6 +909,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DPOWERUP_MAX_RETRY=0
 	# Explicitly disable Softap 6G
 	DHDCFLAGS += -DWL_DISABLE_SOFTAP_6G
+	# Increase assoc beacon wait time
+	DHDCFLAGS += -DDEFAULT_RECREATE_BI_TIMEOUT=40
 ifneq ($(filter y, $(CONFIG_BCM4389)),)
 	# Add chip specific suffix to the output on customer release
 	BCM_WLAN_CHIP_SUFFIX = 4389
@@ -943,6 +947,9 @@ else ifneq ($(CONFIG_ARCH_HISI),)
 	# Allow wl event forwarding as network packet
 	DHDCFLAGS += -DWL_EVENT_ENAB
 
+	# Enable memdump for logset beyond range only internal builds
+	DHDCFLAGS += -DDHD_LOGSET_BEYOND_MEMDUMP
+
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	# LB RXP Flow control to avoid OOM
 	DHDCFLAGS += -DLB_RXP_STOP_THR=200 -DLB_RXP_STRT_THR=199
@@ -958,12 +965,17 @@ endif
 	DHDCFLAGS := $(filter-out -DSIMPLE_MAC_PRINT ,$(DHDCFLAGS))
 endif
 
+ifneq ($(CONFIG_WLAN_TRACKER),)
+  WLAN_TRACKER_DIR=$(BCMDHD_ROOT)/../wlan_ptracker
+  DHDCFLAGS += -I$(WLAN_TRACKER_DIR)/ -DWLAN_TRACKER
+endif
+
 DHDCFLAGS += -DDHD_DEBUG
 DHDCFLAGS += -DDHD_COMPILED=\"$(BCMDHD_ROOT)\"
 DHDCFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/
 DHDCFLAGS += -Wno-date-time
 ifeq ($(KERNEL_SRC),)
-KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR)
+KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR) -Wno-date-time
 endif
 
 DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o \

@@ -380,7 +380,8 @@ dhd_dbg_pull_from_pktlog(dhd_pub_t *dhdp, int ring_id, void *data, uint32 buf_le
 #endif /* DHD_PKT_LOGGING_DBGRING */
 
 int
-dhd_dbg_pull_from_ring(dhd_pub_t *dhdp, int ring_id, void *data, uint32 buf_len)
+dhd_dbg_pull_from_ring(dhd_pub_t *dhdp, int ring_id, void *data, uint32 buf_len,
+		int *num_entries)
 {
 	dhd_dbg_ring_t *ring;
 
@@ -391,7 +392,7 @@ dhd_dbg_pull_from_ring(dhd_pub_t *dhdp, int ring_id, void *data, uint32 buf_len)
 		return BCME_RANGE;
 	}
 	ring = &dhdp->dbg->dbg_rings[ring_id];
-	return dhd_dbg_ring_pull(ring, data, buf_len, FALSE);
+	return dhd_dbg_ring_pull(ring, data, buf_len, FALSE, num_entries);
 }
 
 static int
@@ -1118,16 +1119,17 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 	 * event log buffer. Refer to event log buffer structure in
 	 * event_log.h
 	 */
-	DHD_MSGTRACE_LOG(("EVENT_LOG_HDR[0x%x]: Set: 0x%08x length = %d\n",
-		ltoh16(*((uint16 *)(data+2))), ltoh32(*((uint32 *)(data + 4))),
-		ltoh16(*((uint16 *)(data)))));
+	logset = (ltoh32(*((uint32 *)(data + 4))) & EVENT_LOG_SETID_MASK);
 
-	logset = ltoh32(*((uint32 *)(data + 4)));
+	DHD_MSGTRACE_LOG(("EVENT_LOG_HDR[0x%x]: Set: 0x%08x length = %d\n",
+		ltoh16(*((uint16 *)(data+2))), logset, ltoh16(*((uint16 *)(data)))));
+
 	block_hdr_len = ltoh16(*((uint16 *)(data)));
 
 	if (logset >= event_log_max_sets) {
 		DHD_ERROR(("%s logset: %d max: %d out of range queried: %d\n",
 			__FUNCTION__, logset, event_log_max_sets, event_log_max_sets_queried));
+#ifdef DHD_LOGSET_BEYOND_MEMDUMP
 #ifdef DHD_FW_COREDUMP
 		if (event_log_max_sets_queried && !dhd_memdump_is_scheduled(dhdp)) {
 			DHD_ERROR(("%s: collect socram for DUMP_TYPE_LOGSET_BEYOND_RANGE\n",
@@ -1136,6 +1138,9 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 			dhd_bus_mem_dump(dhdp);
 		}
 #endif /* DHD_FW_COREDUMP */
+#else
+		goto exit;
+#endif /* DHD_LOGSET_BEYOND_MEMDUMP */
 	}
 
 	block = ltoh16(*((uint16 *)(data + 2)));
@@ -2269,13 +2274,15 @@ dhd_dbg_monitor_get_tx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 		uint16 req_count, uint16 *resp_count)
 {
 	dhd_dbg_tx_report_t *tx_report;
-	dhd_dbg_tx_info_t *tx_pkt;
+	dhd_dbg_tx_info_t *tx_pkt, *ori_tx_pkt;
 	wifi_tx_report_t *ptr;
 	compat_wifi_tx_report_t *cptr;
 	dhd_dbg_pkt_mon_state_t tx_pkt_state;
 	dhd_dbg_pkt_mon_state_t tx_status_state;
 	uint16 pkt_count, count;
 	unsigned long flags;
+	dhd_dbg_tx_info_t *tmp_tx_pkt = NULL;
+	uint32 alloc_len, i, ret;
 
 	BCM_REFERENCE(ptr);
 	BCM_REFERENCE(cptr);
@@ -2300,8 +2307,31 @@ dhd_dbg_monitor_get_tx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 
 	count = 0;
 	tx_report = dhdp->dbg->pkt_mon.tx_report;
-	tx_pkt = tx_report->tx_pkts;
+	ori_tx_pkt = tx_report->tx_pkts;
 	pkt_count = MIN(req_count, tx_report->status_pos);
+
+	alloc_len = (sizeof(*tmp_tx_pkt) * pkt_count);
+	tmp_tx_pkt = (dhd_dbg_tx_info_t *)MALLOCZ(dhdp->osh, alloc_len);
+	if (unlikely(!tmp_tx_pkt)) {
+		DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+		DHD_ERROR(("%s: failed to allocate tmp_tx_pkt", __FUNCTION__));
+		return -ENOMEM;
+	}
+	if ((ret = memcpy_s(tmp_tx_pkt, alloc_len, ori_tx_pkt, alloc_len))) {
+		DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+		DHD_ERROR(("%s: failed to copy tmp_tx_pkt ret:%d", __FUNCTION__, ret));
+		return -EINVAL;
+	}
+	for (i = 0; i < pkt_count; i++) {
+		tmp_tx_pkt[i].info.pkt = skb_copy((struct sk_buff*)ori_tx_pkt[i].info.pkt,
+			GFP_ATOMIC);
+		if (!tmp_tx_pkt[i].info.pkt) {
+			DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+			DHD_ERROR(("%s: failed to copy skb", __FUNCTION__));
+			return -ENOMEM;
+		}
+	}
+	tx_pkt = tmp_tx_pkt;
 	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 
 #ifdef CONFIG_COMPAT
@@ -2364,6 +2394,11 @@ dhd_dbg_monitor_get_tx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 			"status_pos=%u\n", __FUNCTION__, pkt_count));
 	}
 
+	for (i = 0; i < pkt_count; i++) {
+		PKTFREE(dhdp->osh, tmp_tx_pkt[i].info.pkt, TRUE);
+	}
+	MFREE(dhdp->osh, tmp_tx_pkt, alloc_len);
+
 	return BCME_OK;
 }
 
@@ -2372,12 +2407,14 @@ dhd_dbg_monitor_get_rx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 		uint16 req_count, uint16 *resp_count)
 {
 	dhd_dbg_rx_report_t *rx_report;
-	dhd_dbg_rx_info_t *rx_pkt;
+	dhd_dbg_rx_info_t *rx_pkt, *ori_rx_pkt;
 	wifi_rx_report_t *ptr;
 	compat_wifi_rx_report_t *cptr;
 	dhd_dbg_pkt_mon_state_t rx_pkt_state;
 	uint16 pkt_count, count;
 	unsigned long flags;
+	dhd_dbg_rx_info_t *tmp_rx_pkt = NULL;
+	uint32 alloc_len, i, ret;
 
 	BCM_REFERENCE(ptr);
 	BCM_REFERENCE(cptr);
@@ -2399,8 +2436,31 @@ dhd_dbg_monitor_get_rx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 
 	count = 0;
 	rx_report = dhdp->dbg->pkt_mon.rx_report;
-	rx_pkt = rx_report->rx_pkts;
+	ori_rx_pkt = rx_report->rx_pkts;
 	pkt_count = MIN(req_count, rx_report->pkt_pos);
+
+	alloc_len = (sizeof(*tmp_rx_pkt) * pkt_count);
+	tmp_rx_pkt = (dhd_dbg_rx_info_t *)MALLOCZ(dhdp->osh, alloc_len);
+	if (unlikely(!tmp_rx_pkt)) {
+		DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+		DHD_ERROR(("%s: failed to allocate tmp_rx_pkt", __FUNCTION__));
+		return -ENOMEM;
+	}
+	if ((ret = memcpy_s(tmp_rx_pkt, alloc_len, ori_rx_pkt, alloc_len))) {
+		DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+		DHD_ERROR(("%s: failed to copy tmp_rx_pkt ret:%d", __FUNCTION__, ret));
+		return -EINVAL;
+	}
+	for (i = 0; i < pkt_count; i++) {
+		tmp_rx_pkt[i].info.pkt = skb_copy((struct sk_buff*)ori_rx_pkt[i].info.pkt,
+			GFP_ATOMIC);
+		if (!tmp_rx_pkt[i].info.pkt) {
+			DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
+			DHD_ERROR(("%s: failed to copy skb", __FUNCTION__));
+			return -ENOMEM;
+		}
+	}
+	rx_pkt = tmp_rx_pkt;
 	DHD_PKT_MON_UNLOCK(dhdp->dbg->pkt_mon_lock, flags);
 
 #ifdef CONFIG_COMPAT
@@ -2447,6 +2507,11 @@ dhd_dbg_monitor_get_rx_pkts(dhd_pub_t *dhdp, void __user *user_buf,
 	}
 
 	*resp_count = pkt_count;
+
+	for (i = 0; i < pkt_count; i++) {
+		PKTFREE(dhdp->osh, tmp_rx_pkt[i].info.pkt, TRUE);
+	}
+	MFREE(dhdp->osh, tmp_rx_pkt, alloc_len);
 
 	return BCME_OK;
 }
@@ -2802,6 +2867,7 @@ void pr_roam_scan_cmpl_v2(prcd_event_log_hdr_t *plog_hdr)
 	int i;
 	roam_log_scan_cmplt_v2_t *log = (roam_log_scan_cmplt_v2_t *)plog_hdr->log_ptr;
 	char chanspec_buf[CHANSPEC_STR_LEN];
+	uint8 scan_list_size;
 
 	DHD_ERROR_ROAM(("ROAM_LOG_SCAN_CMPL: time:%d version:%d"
 		"scan_count:%d score_delta:%d\n",
@@ -2812,7 +2878,9 @@ void pr_roam_scan_cmpl_v2(prcd_event_log_hdr_t *plog_hdr)
 			log->cur_info.rssi,
 			log->cur_info.score,
 			wf_chspec_ntoa_ex(log->cur_info.chanspec, chanspec_buf)));
-	for (i = 0; i < log->scan_list_size; i++) {
+
+	scan_list_size = MIN(log->scan_list_size, ROAM_LOG_RPT_SCAN_LIST_SIZE);
+	for (i = 0; i < scan_list_size; i++) {
 		DHD_ERROR_ROAM(("  ROAM_LOG_CANDIDATE %d: " MACDBG
 			"rssi:%d score:%d cu :%d channel:%s TPUT:%dkbps\n",
 			i, MAC2STRDBG((uint8 *)&log->scan_list[i].addr),
