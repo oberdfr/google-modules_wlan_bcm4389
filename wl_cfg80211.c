@@ -2270,6 +2270,11 @@ wl_cfg80211_p2p_if_add(struct bcm_cfg80211 *cfg,
 
 			return new_ndev->ieee80211_ptr;
 	}
+	else {
+		WL_ERR(("Virtual interface create fail. "
+			"Checking value timeout [%ld], p2p_status [%x], event_info valid [%x]\n",
+			timeout, wl_get_p2p_status(cfg, IF_ADDING), cfg->if_event_info.valid));
+	}
 
 fail:
 	return NULL;
@@ -6928,6 +6933,11 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 		WL_ERR(("Blocking connect request as another STA interface"
 			" with same MAC address already connected\n"));
 		err = -EINVAL;
+		goto fail;
+	}
+	if (wl_get_drv_status_all(cfg, AP_CREATING)) {
+		WL_ERR(("AP creates in progress, so skip this connection for creating AP.\n"));
+		err = -EBUSY;
 		goto fail;
 	}
 #endif /* WL_DUAL_STA */
