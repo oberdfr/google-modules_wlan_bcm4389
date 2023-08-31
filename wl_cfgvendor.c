@@ -4445,6 +4445,9 @@ wl_cfgvendor_nan_parse_datapath_args(struct wiphy *wiphy,
 				return ret;
 			}
 			break;
+		case NAN_ATTRIBUTE_INST_ID:
+			/* Skip */
+			break;
 		default:
 			WL_ERR(("Unknown type, %d\n", attr_type));
 			ret = -EINVAL;
@@ -5158,6 +5161,10 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 
 		switch (attr_type) {
 		/* NAN Enable request attributes */
+		case NAN_ATTRIBUTE_INST_ID: {
+			/* Skip */
+			break;
+		}
 		case NAN_ATTRIBUTE_2G_SUPPORT:{
 			if (nla_len(iter) != sizeof(uint8)) {
 				ret = -EINVAL;
