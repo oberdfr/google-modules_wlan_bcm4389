@@ -6,7 +6,7 @@
  *
  * Definitions subject to change without notice.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -4519,12 +4519,16 @@ enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_GE80_UCODE_V1 = 0x900,	/* corerev >= 80 UCODEX MACSTAT */
 	WL_CNT_XTLV_GE80_RXERR_UCODE_V1 = 0x901,	/* corerev >= 80 UCODE RXERR mac stat */
 	WL_CNT_XTLV_GE80_TXFUNFL_UCODE_V1 = 0x1000,	/* corerev >= 80 UCODEX MACSTAT */
-	WL_CNT_XTLV_GE88_UCODE_TX_V1 = 0x1001,	/* corerev >= 88 ucode macstats V1 - tx */
-	WL_CNT_XTLV_GE88_UCODE_RX_V1 = 0x1002,	/* corerev >= 88 ucode macstats V1 - rx */
-	WL_CNT_XTLV_GE88_UCODE_TX_V2 = 0x1003,	/* corerev >= 88 ucode macstats V2 - tx */
-	WL_CNT_XTLV_GE88_UCODE_RX_V2 = 0x1004,	/* corerev >= 88 ucode macstats V2 - rx */
+	WL_CNT_XTLV_GE88_UCODE_TX_V1 = 0x1001,		/* corerev >= 88 ucode macstats V1 - tx */
+	WL_CNT_XTLV_GE88_UCODE_RX_V1 = 0x1002,		/* corerev >= 88 ucode macstats V1 - rx */
+	WL_CNT_XTLV_GE88_UCODE_TX_V2 = 0x1003,		/* corerev >= 88 ucode macstats V2 - tx */
+	WL_CNT_XTLV_GE88_UCODE_RX_V2 = 0x1004,		/* corerev >= 88 ucode macstats V2 - rx */
 	WL_CNT_XTLV_GE88_UCODE_TX_U32_V1 = 0x1005,	/* corerev >= 88 ucode macstats V1 - tx */
 	WL_CNT_XTLV_GE88_UCODE_RX_U32_V1 = 0x1006,	/* corerev >= 88 ucode macstats V1 - rx */
+	WL_CNT_XTLV_GE88_UCODE_TX_V3 = 0x1007,		/* corerev >= 88 ucode macstats V3 - tx */
+	WL_CNT_XTLV_GE88_UCODE_RX_V3 = 0x1008,		/* corerev >= 88 ucode macstats V3 - rx */
+	WL_CNT_XTLV_GE88_UCODE_TX_U32_V2 = 0x1009,	/* corerev >= 88 ucode macstats V2 - tx */
+	WL_CNT_XTLV_GE88_UCODE_RX_U32_V2 = 0x100a,	/* corerev >= 88 ucode macstats V2 - rx */
 };
 
 /* tlv IDs uniquely identifies periodic state component */
@@ -6116,6 +6120,65 @@ typedef struct wl_macst_tx_ge88mcst_u32 {
 	/* Per ML Link TX macstats (esp. eMLSR) */
 	wl_cnt_ge88mcst_tx_u32_v1_t cnt[];
 } wl_macst_tx_ge88mcst_u32_v1_t;
+
+/* ********** v3 start ************* */
+/* wrapper structure contain link_idx values which might not be same as the actual array ix */
+typedef struct wl_cnt_ge88mcst_rx_wrap_v1 {
+	uint8	link_idx;
+	uint8	pad[3];
+	wl_cnt_ge88mcst_rx_v2_t cnt;
+} wl_cnt_ge88mcst_rx_wrap_v1_t;
+
+typedef struct wl_cnt_ge88mcst_tx_wrap_v1 {
+	uint8	link_idx;
+	uint8	pad[3];
+	wl_cnt_ge88mcst_tx_v2_t cnt;
+} wl_cnt_ge88mcst_tx_wrap_v1_t;
+
+typedef struct wl_cnt_ge88mcst_rx_u32_wrap_v1 {
+	uint8	link_idx;
+	uint8	pad[3];
+	wl_cnt_ge88mcst_rx_u32_v1_t cnt;
+} wl_cnt_ge88mcst_rx_u32_wrap_v1_t;
+
+typedef struct wl_cnt_ge88mcst_tx_u32_wrap_v1 {
+	uint8	link_idx;
+	uint8	pad[3];
+	wl_cnt_ge88mcst_tx_u32_v1_t cnt;
+} wl_cnt_ge88mcst_tx_u32_wrap_v1_t;
+
+/* Rev GE88 per ML link supportive wl counters (macstats) - version 3 */
+typedef struct wl_macst_rx_ge88mcst_v3 {
+	uint8	num_links;	/* Number of per-link stats supported on slice */
+	uint8	pad[3];
+	/* Per ML Link RX macstats (esp. eMLSR) */
+	wl_cnt_ge88mcst_rx_wrap_v1_t cnt_wrap[];
+} wl_macst_rx_ge88mcst_v3_t;
+
+/* Rev GE88 per ML link supportive wl counters (macstats) - version 3 */
+typedef struct wl_macst_tx_ge88mcst_v3 {
+	uint8	num_links;	/* Number of per-link stats supported on slice */
+	uint8	pad[3];
+	/* Per ML Link TX macstats (esp. eMLSR) */
+	wl_cnt_ge88mcst_tx_wrap_v1_t cnt_wrap[];
+} wl_macst_tx_ge88mcst_v3_t;
+
+/* Rev GE88 per ML link supportive wl counters (macstats) - version 3 */
+typedef struct wl_macst_rx_ge88mcst_u32_v3 {
+	uint8	num_links;	/* Number of per-link stats supported on slice */
+	uint8	pad[3];
+	/* Per ML Link RX macstats (esp. eMLSR) */
+	wl_cnt_ge88mcst_rx_u32_wrap_v1_t cnt_wrap[];
+} wl_macst_rx_ge88mcst_u32_v3_t;
+
+/* Rev GE88 per ML link supportive wl counters (macstats) - version 3 */
+typedef struct wl_macst_tx_ge88mcst_u32_v3 {
+	uint8	num_links;	/* Number of per-link stats supported on slice */
+	uint8	pad[3];
+	/* Per ML Link TX macstats (esp. eMLSR) */
+	wl_cnt_ge88mcst_tx_u32_wrap_v1_t cnt_wrap[];
+} wl_macst_tx_ge88mcst_u32_v3_t;
+/* ********** v3 end ************* */
 
 /** MACSTAT counters for ucode (corerev >= 80) */
 typedef struct {
@@ -8946,6 +9009,7 @@ typedef struct wl_pkteng_rx_pkt {
 #define WL_PKTENG_RU_FILL_VER_1		1u
 #define WL_PKTENG_RU_FILL_VER_2		2u
 #define WL_PKTENG_RU_FILL_VER_3		3u
+#define WL_PKTENG_RU_FILL_VER_4		4u
 
 // struct for ru packet engine
 typedef struct wl_pkteng_ru_v1 {
@@ -9016,9 +9080,35 @@ typedef struct wl_pkteng_ru_v3 {
 	uint8 PAD[2];		/* 2 byte padding to make structure size a multiple of 32bits */
 } wl_pkteng_ru_v3_t;
 
+typedef struct wl_pkteng_ru_v4 {
+	uint16 version;			/* ver is 4 */
+	uint16 length;			/* size of complete structure */
+	uint32 num_bytes;		/* approx num of bytes to calculate other required params */
+	struct ether_addr dest;		/* destination address for un-associated mode */
+	uint16 ru_alloc_val;		/* ru allocation index number */
+	uint8 bw;			/* bandwidth info */
+	uint8 mcs_val;			/* mcs allocated value */
+	uint8 nss_val;			/* num of spatial streams */
+	uint8 cp_ltf_val ;		/* GI and LTF symbol size */
+	uint8 he_ltf_symb ;		/* num of HE-LTF symbols */
+	uint8 stbc;			/* STBC support */
+	uint8 coding_val;		/* BCC/LDPC coding support */
+	uint8 pe_category;		/* PE duration 0/8/16usecs  */
+	uint8 dcm;			/* dual carrier modulation */
+	uint8 mumimo_ltfmode;		/* ltf mode */
+	uint8 trig_tx;			/* form and transmit the trigger frame */
+	uint8 trig_type;		/* type of trigger frame */
+	uint8 trig_period;		/* trigger tx periodicity TBD */
+	uint8 tgt_rssi;			/* target rssi value in encoded format */
+	uint8 sub_band;			/* in 160MHz case, 80L, 80U */
+	uint8 betrig;			/* 11BE (EHT) trigger format */
+	uint8 ps160;			/* PS160 indicator, 160L, 160U */
+	uint8 PAD[3];			/* 3B padding to make structure size a multiple of 32b */
+} wl_pkteng_ru_v4_t;
+
 #ifndef WL_PKTENG_RU_VER
 /* App uses the latest version - source picks it up from wlc_types.h */
-typedef wl_pkteng_ru_v3_t wl_pkteng_ru_fill_t;
+typedef wl_pkteng_ru_v4_t wl_pkteng_ru_fill_t;
 #endif
 
 typedef struct wl_trig_frame_info {
@@ -16155,7 +16245,11 @@ enum wl_nan_fw_cap_flag1 {
 	WL_NAN_FW_CAP_FLAG1_OOB_AF		= 0x00100000,
 	WL_NAN_FW_CAP_FLAG1_PMK_PER_NDP		= 0x00200000,
 	WL_NAN_FW_CAP_FLAG1_INSTANT_MODE	= 0x00400000,
-	WL_NAN_FW_CAP_FLAG1_SEC_ENHANCE		= 0x00800000
+	/* SEC_ENHANCE will be removed once it's replaced by GAF_PROTECT and REKEY on branches. */
+	WL_NAN_FW_CAP_FLAG1_SEC_ENHANCE		= 0x00800000,
+	/* Group Addressed Frames Protect (GTK/IGTK/BIGTK) */
+	WL_NAN_FW_CAP_FLAG1_GAF_PROTECT		= 0x00800000,
+	WL_NAN_FW_CAP_FLAG1_REKEY		= 0x01000000
 };
 
 /* WL_NAN_XTLV_GEN_FW_CAP */
@@ -23303,11 +23397,17 @@ typedef struct wl_mlo_link_config_v1 {
 
 /* MLO modes of operation */
 #define MLO_STR			(0u)
+/* MLO_TDM is being deprecated, pls use MLO_EMLSR */
 #define MLO_TDM			(1u)
+#define MLO_EMLSR		(1u)
 #define MLO_AUTO		(2u)
 #define WL_MLO_MODE_INVALID	(0xFFu)
 
 #define WL_MLO_CONFIG_VER_1	(1u)
+
+/* mlo status structure for an interface */
+/* ================================================== */
+#define WL_MLO_STATUS_VER_1	(1u)
 
 typedef struct wl_mlo_config_v1 {
 	uint16	version;
@@ -23327,9 +23427,6 @@ typedef struct wl_mlo_link_status_v1 {
 	chanspec_t		chanspec;	/* Chanspec */
 } wl_mlo_link_status_v1_t;
 
-#define WL_MLO_STATUS_VER_1	(1u)
-
-/* mlo status structure for an interface */
 /* Note: mlo mode for an interface is "operative" means
  * - mode: value NOT 0. either STR and TDM.
  * - for sta: mlo association; more than 1 link operative
@@ -23353,7 +23450,45 @@ typedef struct wl_mlo_status_v1 {
 	uint8	num_links_operative;		/* Number of operative links. see above */
 	wl_mlo_link_status_v1_t	link_status[];	/* status on operative links */
 } wl_mlo_status_v1_t;
+/* ================================================== */
+#define WL_MLO_STATUS_VER_2	(2u)
+/* peer's info for each link */
+typedef struct wl_mlo_link_peer_info_v2 {
+	struct ether_addr	link_addr;	/* peer Link specific address */
+	struct ether_addr	mld_addr;	/* peer mld address. If this is 0, means
+						 * legacy peer
+						 */
+} wl_mlo_link_peer_info_v2_t;
 
+/* mlo info structure per link */
+typedef struct wl_mlo_link_status_v2 {
+	uint8			link_id;	/* link ID - AP managed unique # */
+	uint8			link_idx;	/* link index - link config idx */
+	struct ether_addr	link_addr;	/* Link specific address */
+	chanspec_t		chanspec;	/* Chanspec */
+	uint8			num_peers;	/* number of peers for this link. For STA, this
+						 * will be 1, for AP, can be multiple
+						 */
+	uint8			pad[1];
+	wl_mlo_link_peer_info_v2_t	pi[];	/* number of peers for this link */
+} wl_mlo_link_status_v2_t;
+
+/* see comments for wl_mlo_status_v1_t */
+typedef struct wl_mlo_status_v2 {
+	uint16			version;
+	uint16			length;
+	struct ether_addr	mld_addr;		/* if mode is STR/TDM --> mld_addr
+							 * else cfg->curether_addr
+							 */
+	uint8			mode;			/* Present Mode of operation
+							 * - MLO_STR, MLO_TDM
+							 */
+	uint8			num_links_operative;	/* Number of operative links. see above */
+	uint8			link_status[];		/* status on operative links of
+							 * type wl_mlo_link_status_v2_t
+							 */
+} wl_mlo_status_v2_t;
+/* ================================================== */
 /* mlo cap structure
  *
  * max_mlo_links   : value 0 means MLO is unsupported
@@ -25964,19 +26099,20 @@ enum wl_rxsig_cmd_rssi_mode {
 
 /* structure defs for 'wl rxsig [cmd]' iovars */
 enum wl_rxsig_iov_v1 {
-	WL_RXSIG_CMD_RSSI =      0x1,     /**< combined rssi moving avg */
-	WL_RXSIG_CMD_SNR =       0x2,     /**< combined snr moving avg */
-	WL_RXSIG_CMD_RSSIANT =   0x3,     /**< rssi moving avg per-ant */
-	WL_RXSIG_CMD_SNRANT =    0x4,     /**< snr moving avg per-snr */
-	WL_RXSIG_CMD_SMPLWIN =   0x5,     /**< config for sampling window size */
-	WL_RXSIG_CMD_SMPLGRP =   0x7,     /**< config for grouping of pkt type */
-	WL_RXSIG_CMD_STA_MA =    0x8,
-	WL_RXSIG_CMD_MAMODE =    0x9,
-	WL_RXSIG_CMD_MADIV =     0xa,
-	WL_RXSIG_CMD_DUMP =      0xb,
-	WL_RXSIG_CMD_DUMPWIN =   0xc,
-	WL_RXSIG_CMD_RSSI_EXP =  0xd,
-	WL_RXSIG_CMD_RSSI_COMP = 0xe,
+	WL_RXSIG_CMD_RSSI		= 0x1,	/**< combined rssi moving avg */
+	WL_RXSIG_CMD_SNR		= 0x2,	/**< combined snr moving avg */
+	WL_RXSIG_CMD_RSSIANT		= 0x3,	/**< rssi moving avg per-ant */
+	WL_RXSIG_CMD_SNRANT		= 0x4,	/**< snr moving avg per-snr */
+	WL_RXSIG_CMD_SMPLWIN		= 0x5,	/**< config for sampling window size */
+	WL_RXSIG_CMD_SMPLGRP		= 0x7,	/**< config for grouping of pkt type */
+	WL_RXSIG_CMD_STA_MA		= 0x8,
+	WL_RXSIG_CMD_MAMODE		= 0x9,
+	WL_RXSIG_CMD_MADIV		= 0xa,
+	WL_RXSIG_CMD_DUMP		= 0xb,
+	WL_RXSIG_CMD_DUMPWIN		= 0xc,
+	WL_RXSIG_CMD_RSSI_EXP		= 0xd,	/**< config for expiry time in ms */
+	WL_RXSIG_CMD_RSSI_COMP		= 0xe,	/**< config for rssi compensation threshold */
+	WL_RXSIG_CMD_RSSI_COMP_TBL	= 0xf,	/**< config for rssi compensation table */
 	WL_RXSIG_CMD_TOTAL
 };
 
@@ -26003,6 +26139,17 @@ struct wl_rxsig_iov_rssi_ant_v1 {
 	uint8 rssi_mode;       /**< MODE_DB or MODE_QDB */
 	uint8 num_of_ant;      /**< total number of ants */
 	uint8 PAD[2];          /**< padding for 32bit align */
+};
+
+#define WL_RXSIG_RSSI_COMP_TBL_V1       (1u)
+struct wl_rxsig_rssi_comp_tbl_v1 {
+	uint16 version;		/**< version */
+	uint8 num_steps;	/**< number of RSSI steps for gradual compensation per BW.
+				 * The total length of tbl[] must be multiple of this value
+				 * Example: 3xnum_steps is needed to support 40, 80 and 160MHz
+				 */
+	uint8 pad;
+	uint8 tbl[];		/**< compensation value tables - starting on 32-bit alignment */
 };
 
 #ifdef BCM_SDC
@@ -26165,6 +26312,13 @@ typedef struct wl_avs_info_v1 {
 #define WL_CLM_NO_320MHZ           0x200000u /**< Flag for NO_320MHZ */
 #define WL_CLM_NO_160_160MHZ       0x400000u /**< Flag for NO_160_160MHZ */
 #define WL_CLM_CBP_FCC             0x800000u /**< Flag for CBP_FCC */
+#define WL_CLM_6G_P2P_FLAGS_MASK   0x7000000u /**< 3 bits to represent 6GHz p2p releated flags
+					       * 0x3 ~ 0x6 are reserved for now
+					       */
+#define WL_CLM_C2C_DISABLED        0x0u       /**< No C2C related flags */
+#define WL_CLM_C2C_EU              0x1000000u /**< Flag for C2C_EU */
+#define WL_CLM_C2C_US              0x2000000u /**< Flag for C2C_US */
+#define WL_CLM_VLP_P2P_DISABLE     0x7000000u /**< Flag VLP_P2P_DISABLE */
 #define WL_CLM_DFS_FCC             WL_CLM_DFS_TPC /**< Flag for DFS FCC */
 #define WL_CLM_DFS_EU              (WL_CLM_DFS_TPC | WL_CLM_RADAR_TYPE_EU) /**< Flag for DFS EU */
 
@@ -28055,6 +28209,22 @@ typedef struct btcx_roam_profile {
 	uint32 task_bm;
 } btcx_roam_profile_v1_t;
 
+/* WLAN Rate Recovery Configuration */
+/* Version 1 is the IOVAR itself. */
+#define BTC_RR_CONFIG_VER_1 1
+
+#define BTC_RR_CONFIG_VER_2 2
+typedef struct wlc_btc_rr_config_v2 {
+	uint8 version;			/* version */
+	uint8 len;			/* length */
+	bool enable;			/* enable/disable */
+	uint8 nss;			/* NSS and MCS from the host define the cutoff rate. */
+	uint8 mcs;
+	uint8 cutoff_mcs_nss1_11n;	/* Cutoff MCS when NSS=1. */
+	uint8 cutoff_mcs_nss2_11n;	/* Cutoff MCS when NSS=2. */
+	uint8 pad;
+} wlc_btc_rr_config_v2_t;
+
 enum phy_rxgcrs_ed_enhncd_cmd_id {
 	PHY_RXGCRS_ED_ENHNCD_CMD_EN		= 1u,
 	PHY_RXGCRS_ED_ENHNCD_CMD_STATUS		= 2u,
@@ -28076,6 +28246,10 @@ typedef enum sae_cmd_id {
 										 * miliseconds
 										 */
 	WL_SAE_CMD_AP_MAX_ACTIVE_SESSIONS	= 2, /* AP max sessions
+											* Data:
+											* uint32
+											*/
+	WL_SAE_CMD_STATUS = 3, /* RSNXE Caps
 											* Data:
 											* uint32
 											*/
@@ -28791,6 +28965,13 @@ typedef struct wl_cell_avoid_ch_info_v1 {
 /* This flag is used to remove channel info list in chinfo subcmd */
 #define WL_CELL_AVOID_REMOVE_CH_INFO	0x8000u
 
+#ifdef COEX_CPU
+enum wl_coex_cpu_sub_cmd_xtlv_id {
+	WL_COEX_CPU_CMD_FW_VERSION	= 0u, /* Get firmware version string */
+	WL_COEX_CPU_CMD_STATUS		= 1u, /* Get current coex cpu status */
+};
+#endif /* COEX_CPU */
+
 #ifdef CHRE
 #define WL_CHRE_IOV_MAJOR_VER_SHIFT	8u
 
@@ -29446,4 +29627,114 @@ typedef struct wl_scbrate_txminrate {
 	struct ether_addr	peer_mac;	/* mac addrss of peer */
 	uint16		txminrate;	/* Tx min rate in 0.5mbps */
 } wl_scbrate_txminrate_t;
+
+/* Test seeding top level command IDs */
+enum {
+	WL_SEED_TEST_CMD_ROAM_CONFIG			= 0u,
+	WL_SEED_TEST_CMD_ROAM_CLEAR_TARGETS		= 1u,
+	WL_SEED_TEST_CMD_ROAM_ADD_TARGETS		= 2u,
+	WL_SEED_TEST_CMD_LAST
+};
+
+#define SEED_TEST_ROAM_CFG_VERSION_1 1u
+/* set roam test seeding rule:
+ * replace(1) or append(0) host's target list to FW's scan results
+ */
+#define SEED_TEST_ROAM_CFGFLAG_REPLACE 0x1u
+
+struct wl_seed_test_roam_config_v1 {
+	uint16 version;
+	uint16 length;
+	uint16 flags;
+	uint8  pad[2];
+};
+
+#define SEED_TEST_ROAM_MODE_CAP_N	0x1u
+#define SEED_TEST_ROAM_MODE_CAP_VHT	0x2u
+#define SEED_TEST_ROAM_MODE_CAP_EHT	0x4u
+#define SEED_TEST_ROAM_MODE_CAP_HE	0x8u
+
+#define SEED_TEST_ROAM_ADD_TARGETS_VERSION_1 1u
+
+struct wl_seed_test_roam_add_targets_v1 {
+	uint16		version;		/* version field */
+	/* byte length of data in this data structure,
+	 * starting at version and including IEs appended afterwards
+	 */
+	uint16		length;
+	struct ether_addr BSSID;
+	uint8		mode_cap;	/* n_cap, he_cap, vht_cap, eht_cap */
+	uint8		SSID_len;
+	/* values can be short ssid or ssid, indicated in flags */
+	uint8		SSID[DOT11_MAX_SSID_LEN];
+	chanspec_t	chanspec;	/* chanspec for bss */
+	int16		RSSI;		/* receive signal strength (in dBm) */
+	uint16		capability;	/* capability filed in beacon */
+	uint16		flags;		/* flags w.r.t. beacon: TBD */
+	struct {
+		uint32	count;		/* number of rates in this set */
+		uint8	rates[WLC_NUMRATES];	/* rates in 500kbps units w/hi bit set if basic */
+	} rateset;			/* supported rates */
+	uint8		basic_mcs[MCSSET_LEN];		/* 802.11N BSS required MCS set */
+	uint16		vht_mcsmap;		/* vhtmcsmap */
+	uint16		vht_mcsmap_prop;	/* prop vhtmcsmap */
+	uint32		he_mcsmap;		/* same as he_mcs_nss_set */
+	wl_eht_mcsmap_t eht_mcsmap;	/* EHT-MCS Map for the BSS operating chan width */
+	uint8		pad1;
+	/* qbss load available admission capacity, from qbss_load_ie */
+	uint16		qbss_load_aac;
+	/* indicates how free the channel is, (0xff - channel_utilization of qbss_load_ie) */
+	uint8		qbss_load_chan_free;
+	/* last set max txpwr, from VHT TPE IE, for 6G AP */
+	int8		max_tx_pwr_used;
+	/* from HE Operation IE with HE 6G Operation info, for 6G AP */
+	uint8		reg_info_6g_bss;
+	uint8		pad2;
+	uint16		ie_length;	/* length of following ie data, can be 0 */
+	uint8		ie_data[];	/* ie data indicated by length above */
+};
+
+/* subcommand ids for phy_dbg */
+enum wl_phy_dbg_cmd_type {
+	WL_PHY_DBG_CMD_GCI = 0u,	/* GCI Dump */
+	WL_PHY_DBG_CMD_LAST
+};
+
+#define WL_PHY_DBG_GCI_VERSION_1	1u
+
+typedef struct wl_phy_dbg_gci_data_v1 {
+	uint16 gci_lst_inv_ctr;
+	uint16 gci_lst_rst_ctr;
+	uint16 gci_lst_sem_fail;
+	uint16 gci_lst_rb_state;
+	uint16 gci_lst_state_mask;
+	uint16 gci_inv_tx;
+	uint16 gci_inv_rx;
+	uint16 gci_rst_tx;
+	uint16 gci_rst_rx;
+	uint16 gci_sem_fail;
+	uint16 gci_invstate;
+	uint16 gci_phyctl2;
+	uint16 gci_chan;
+	uint16 gci_cm;
+	uint16 gci_intr;
+	uint16 gci_rst_intr;
+	uint16 gci_rst_prdc_rx;
+	uint16 gci_rst_wk_rx;
+	uint16 gci_rst_rmac_rx;
+	uint16 gci_rst_tx_rx;
+	uint16 gci_dbg01;
+	uint16 gci_dbg02;
+	uint16 gci_dbg03;
+	uint16 gci_dbg04;
+	uint16 gci_dbg05;
+} wl_phy_dbg_gci_data_v1_t;
+
+typedef struct wl_phy_dbg_v1 {
+	uint16  subcmd_version;		/* Version of the sub-command */
+	uint16  length;			/* Length of the particular struct being used in union */
+	union {
+		wl_phy_dbg_gci_data_v1_t gcivals_v1;	/* GCI data */
+	} u;
+} wl_phy_dbg_v1_t;
 #endif /* _wlioctl_h_ */

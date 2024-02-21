@@ -3,7 +3,7 @@
  * Contents are wifi-specific, used by any kernel or app-level
  * software that might want wifi things as it grows.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -28,6 +28,8 @@
 #ifdef BCMDRIVER
 #include <osl.h>
 #define strtoul(nptr, endptr, base) bcm_strtoul((nptr), (endptr), (base))
+#undef tolower
+#define tolower(c) (bcm_isupper((c)) ? ((c) + 'a' - 'A') : (c))
 #else /* BCMDRIVER */
 #include <stdio.h>
 #include <string.h>

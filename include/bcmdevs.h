@@ -1,7 +1,7 @@
 /*
  * Broadcom device-specific manifest constants.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -192,6 +192,12 @@
 #define BCM4388_CHIP_ID		0x4388          /* 4388 chipcommon chipid */
 #define BCM4389_CHIP_ID		0x4389          /* 4389 chipcommon chipid */
 #define BCM4397_CHIP_ID		0x4397          /* 4397 chipcommon chipid */
+
+#define BCM4383_CHIP_ID         0x4383          /* 4383 chipcommon chipid */
+#define BCM4383_D11AX_ID        0x4449          /* 4383 802.11ax triband device */
+
+#define BCM4383_CHIP(chipid)	(CHIPID(chipid) == BCM4383_CHIP_ID)
+#define BCM4383_CHIP_GRPID	BCM4383_CHIP_ID
 
 #define BCM4362_CHIP(chipid)	(CHIPID(chipid) == BCM4362_CHIP_ID)
 #define BCM4362_CHIP_GRPID	BCM4362_CHIP_ID

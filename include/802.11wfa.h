@@ -1,7 +1,7 @@
 /*
  * WFA specific types and constants relating to 802.11
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -31,6 +31,8 @@
 #ifndef _NET_ETHERNET_H_
 #include <ethernet.h>
 #endif
+
+#include <802.11.h>
 
 /* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
@@ -227,6 +229,15 @@ typedef BWL_PRE_PACKED_STRUCT struct owe_transition_mode_ie_s {
 #define OWE_IE_HDR_SIZE (OFFSETOF(wifi_owe_ie_t, attr))
 /* oui:3 bytes + oui type:1 byte */
 #define OWE_IE_NO_ATTR_LEN  4
+
+/** hotspot2.0 indication element (vendor specific) */
+BWL_PRE_PACKED_STRUCT struct hs20_ie {
+	uint8 oui[3];
+	uint8 type;
+	uint8 config;
+} BWL_POST_PACKED_STRUCT;
+typedef struct hs20_ie hs20_ie_t;
+#define HS20_IE_LEN 5	/* HS20 IE length */
 
 /* This marks the end of a packed structure section. */
 #include <packed_section_end.h>

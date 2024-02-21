@@ -1,7 +1,7 @@
 /*
  * log_dump - debugability support for dumping logs to file
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1246,6 +1246,7 @@ do_dhd_log_dump(dhd_pub_t *dhdp, log_dump_type_t *type)
 {
 	int ret = 0, i = 0;
 	struct file *fp = NULL;
+	MM_SEGMENT_T fs;
 	loff_t pos = 0;
 	char dump_path[128];
 	uint32 file_mode;
@@ -1271,6 +1272,8 @@ do_dhd_log_dump(dhd_pub_t *dhdp, log_dump_type_t *type)
 	if ((ret = dhd_log_flush(dhdp, type)) < 0) {
 		goto exit1;
 	}
+
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	dhd_get_debug_dump_file_name(NULL, dhdp, dump_path, sizeof(dump_path));
 
@@ -1481,6 +1484,7 @@ exit2:
 		DHD_ERROR(("%s: Finished writing log dump to file - '%s' \n",
 				__FUNCTION__, dump_path));
 	}
+	SETFS(fs);
 exit1:
 	if (type) {
 		MFREE(dhdp->osh, type, sizeof(*type));

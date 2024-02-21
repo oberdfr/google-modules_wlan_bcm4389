@@ -1,7 +1,7 @@
 /*
  * DHD debug ring header file - interface
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -54,7 +54,7 @@ typedef struct dhd_dbg_ring_entry {
 
 typedef struct dhd_dbg_ring_entry_pack {
 	uint32 magic;
-	int num_entries; /* the number of log entries */
+	int num_entries;
 } PACKED_STRUCT dhd_dbg_ring_entry_pack_t;
 
 struct ring_statistics {

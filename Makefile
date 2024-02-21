@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2022, Broadcom.
+# Copyright (C) 2024, Broadcom.
 #
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
@@ -25,18 +25,17 @@ M ?= $(shell pwd)
 
 ifneq ($(KERNEL_SRC),)
  KBUILD_OPTIONS += BCMDHD_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
- include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+ -include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
  EXTRA_CFLAGS+="-Wno-missing-prototypes"
 endif
 
-ifneq ($(CONFIG_WLAN_TRACKER),)
-KBUILD_EXTRA_SYMBOLS=$(OUT_DIR)/../google-modules/wlan/wlan_ptracker/Module.symvers
+ifneq ($(KERNEL_SRC),)
+ KBUILD_OPTIONS += BCMDHD_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
 endif
 
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) \
 	$(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
-
 modules_install:
 	@echo "$(MAKE) INSTALL_MOD_STRIP=1 M=$(M) -C $(KERNEL_SRC) modules_install"
 	@$(MAKE) INSTALL_MOD_STRIP=1 M=$(M) -C $(KERNEL_SRC) modules_install

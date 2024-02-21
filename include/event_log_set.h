@@ -1,7 +1,7 @@
 /*
  * EVENT_LOG system definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -134,6 +134,17 @@
 #define EVENT_LOG_SET_CHRE              (33u)
 #define EVENT_LOG_SET_CHRE_CHATTY       (34u)
 #endif /* CHRE */
+
+#ifdef COEX_CPU
+/* Shdow log sets for coex cpu */
+#define EVENT_LOG_SET_COEX_SHADOW_INFO		(35u)
+#define EVENT_LOG_SET_COEX_SHADOW_ERR		(36u)
+/* TODO: Rename coex shadow set PRSRV to TIMELINE. The old name will be removed once changes in
+ * all user components are submitted.
+ */
+#define EVENT_LOG_SET_COEX_SHADOW_PRSRV		(37u)
+#define EVENT_LOG_SET_COEX_SHADOW_TIMELINE	(37u)
+#endif /* COEX_CPU */
 
 //For all BCM HAL logging.
 #define EVENT_LOG_SET_BCMHAL		(38u)

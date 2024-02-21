@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1341,7 +1341,9 @@ BCMFASTPATH(dhd_lb_sendpkt)(dhd_info_t *dhd, struct net_device *net,
 #endif /* DHD_LB_TXP */
 
 #ifdef DHD_LB_TXP
-#define DHD_LB_TXBOUND	32
+#ifndef DHD_LB_TXBOUND
+#define DHD_LB_TXBOUND	64
+#endif
 /*
  * Function that performs the TX processing on a given CPU
  */

@@ -1,6 +1,6 @@
 # bcmdhd
 #
-# Copyright (C) 2022, Broadcom.
+# Copyright (C) 2024, Broadcom.
 #
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
@@ -91,7 +91,7 @@ DHDCFLAGS += -DCONFIG_BCMDHD_GET_OOB_STATE=$(CONFIG_BCMDHD_GET_OOB_STATE)
 endif
 
 DHDCFLAGS += -DBCMUTILS_ERR_CODES -DUSE_NEW_RSPEC_DEFS
-DHDCFLAGS += -Wall -Wstrict-prototypes -Wno-parentheses-equality -Dlinux -DLINUX -DBCMDRIVER \
+DHDCFLAGS += -Wall -Werror -Wstrict-prototypes -Wno-parentheses-equality -Dlinux -DLINUX -DBCMDRIVER \
 	-DBCMDONGLEHOST -DBCMDMA32 -DBCMFILEIMAGE \
 	-DDHDTHREAD -DSHOW_EVENTS -DWLP2P \
 	-DWIFI_ACT_FRAME -DARP_OFFLOAD_SUPPORT \
@@ -246,6 +246,12 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DCLEAN_IRQ_AFFINITY_HINT
 	DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=4
 	DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=4
+	# Tx/Rx tasklet bounds
+	DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
+	DHDCFLAGS += -DDHD_TX_POST_BOUND=128
+	DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
+	DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=8
+	DHDCFLAGS += -DDHD_LB_TXBOUND=32
 endif
 
 # Memory consumed by DHD
@@ -280,11 +286,6 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DWL_MONITOR
 # WLBR Regon coordinator
 	DHDCFLAGS += -DWBRC
-# DPC bounds
-        DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
-        DHDCFLAGS += -DDHD_TX_POST_BOUND=128
-        DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
-        DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=8
 endif
 
 ifneq ($(CONFIG_FIB_RULES),)
@@ -296,10 +297,18 @@ DHDCFLAGS += -DDHD_HAL_RING_DUMP
 DHDCFLAGS += -DDHD_HAL_RING_DUMP_MEMDUMP
 # Pixel platform only, to support ring data flushing properly
 DHDCFLAGS += -DDHD_DUMP_START_COMMAND
+# MLO related back port changes
+DHDCFLAGS += -DWL_MLO_BKPORT
+# TDI policy kernel back port changes
+DHDCFLAGS += -DWL_MLO_BKPORT_NEW_PORT_AUTH
+# ch_switch_notify back port changes
+DHDCFLAGS += -DWL_CH_SWITCH_BKPORT
 # Enable pktid logging
 DHDCFLAGS += -DDHD_MAP_PKTID_LOGGING
 # Skip coredump for certain health check traps
 DHDCFLAGS += -DDHD_SKIP_COREDUMP_ON_HC
+# CROSS AKM related back port changes
+DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
 else
 DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
 # The debug dump file path is blank in DHD, it is defined in HAL.
@@ -733,7 +742,10 @@ ifneq ($(filter y, $(CONFIG_BCM4389)),)
   DHDCFLAGS += -DWL_UNII4_CHAN
   # Use xorcsum sync retry count one with DMA indices
   # enabled to detect cache coherency issue in host
-  #DHDCFLAGS += -DPCIE_D2H_SYNC_RETRY_CNT_ONE
+  # Disabled for GG platform
+ifeq ($(CONFIG_SOC_GOOGLE),)
+  DHDCFLAGS += -DPCIE_D2H_SYNC_RETRY_CNT_ONE
+endif
 endif
 
 # For 4389 and 43752
@@ -914,8 +926,6 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DPOWERUP_MAX_RETRY=0
 	# Explicitly disable Softap 6G
 	DHDCFLAGS += -DWL_DISABLE_SOFTAP_6G
-	# Increase assoc beacon wait time
-	DHDCFLAGS += -DDEFAULT_RECREATE_BI_TIMEOUT=40
 ifneq ($(filter y, $(CONFIG_BCM4389)),)
 	# Add chip specific suffix to the output on customer release
 	BCM_WLAN_CHIP_SUFFIX = 4389
@@ -936,7 +946,7 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_CLM_NAME="\"bcmdhd_clm.blob\""
 	DHDCFLAGS += -DDHD_MAP_NAME="\"fw_bcmdhd.map\""
 ifneq ($(CONFIG_SOC_GS201),)
-	DHDCFLAGS += -DCPL_TIMEOUT_RECOVERY
+	DHDCFLAGS += -DPCIE_CPL_TIMEOUT_RECOVERY
 endif
 endif
 	# TCP TPUT Enhancement, enable only for GS101
@@ -970,17 +980,12 @@ endif
 	DHDCFLAGS := $(filter-out -DSIMPLE_MAC_PRINT ,$(DHDCFLAGS))
 endif
 
-ifneq ($(CONFIG_WLAN_TRACKER),)
-  WLAN_TRACKER_DIR=$(BCMDHD_ROOT)/../wlan_ptracker
-  DHDCFLAGS += -I$(WLAN_TRACKER_DIR)/ -DWLAN_TRACKER
-endif
-
 DHDCFLAGS += -DDHD_DEBUG
 DHDCFLAGS += -DDHD_COMPILED=\"$(BCMDHD_ROOT)\"
 DHDCFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/
 DHDCFLAGS += -Wno-date-time
 ifeq ($(KERNEL_SRC),)
-KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR) -Wno-date-time
+KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR)
 endif
 
 DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o \

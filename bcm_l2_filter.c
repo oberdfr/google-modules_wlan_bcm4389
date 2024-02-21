@@ -1,7 +1,7 @@
 /*
  * L2 Filter handling functions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -34,6 +34,7 @@
 #include <bcmproto.h>
 #include <bcmdhcp.h>
 #include <802.11.h>
+#include <802.11z.h>
 #include <bcm_l2_filter.h>
 
 #ifdef BCMDBG_ERR

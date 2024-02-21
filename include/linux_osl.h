@@ -1,7 +1,7 @@
 /*
  * Linux OS Independent Layer
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -334,11 +334,6 @@ extern void osl_preempt_enable(osl_t *osh);
 	#define OSL_PREFETCH(ptr)		BCM_REFERENCE(ptr)
 #endif /* !__ARM_ARCH_7A__ */
 
-#ifdef AXI_TIMEOUTS_NIC
-extern void osl_set_bpt_cb(osl_t *osh, void *bpt_cb, void *bpt_ctx);
-extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
-#endif /* AXI_TIMEOUTS_NIC */
-
 /* register access macros */
 #if defined(BCMSDIO)
 	#include <bcmsdh.h>
@@ -346,20 +341,7 @@ extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
 		(uintptr)(r), sizeof(*(r)), (v)))
 	#define OSL_READ_REG(osh, r) (bcmsdh_reg_read(osl_get_bus_handle(osh), \
 		(uintptr)(r), sizeof(*(r))))
-#elif defined(AXI_TIMEOUTS_NIC)
-#define OSL_READ_REG(osh, r) \
-	({\
-		__typeof(*(r)) __osl_v; \
-		osl_bpt_rreg(osh, (uintptr)(r), &__osl_v, sizeof(*(r))); \
-		__osl_v; \
-	})
-#endif
 
-#if defined(AXI_TIMEOUTS_NIC)
-	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
-	#define SELECT_BUS_READ(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); bus_op;})
-#else /* !AXI_TIMEOUTS_NIC */
-#if defined(BCMSDIO)
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) (((osl_pubinfo_t*)(osh))->mmbus) ? \
 		mmap_op : bus_op
 	#define SELECT_BUS_READ(osh, mmap_op, bus_op) (((osl_pubinfo_t*)(osh))->mmbus) ? \
@@ -368,7 +350,6 @@ extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
 	#define SELECT_BUS_READ(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
 #endif /* defined(BCMSDIO) */
-#endif /* AXI_TIMEOUTS_NIC */
 
 #define OSL_ERROR(bcmerror)	osl_error(bcmerror)
 extern int osl_error(int bcmerror);
@@ -842,7 +823,7 @@ typedef struct osl_timer {
 
 typedef void (*linux_timer_fn)(ulong arg);
 
-extern osl_timer_t * osl_timer_init(osl_t *osh, const char *name, void (*fn)(ulong arg), ulong arg);
+extern osl_timer_t * osl_timer_init(osl_t *osh, const char *name, void (*fn)(void *arg), void *arg);
 extern void osl_timer_add(osl_t *osh, osl_timer_t *t, uint32 ms, bool periodic);
 extern void osl_timer_update(osl_t *osh, osl_timer_t *t, uint32 ms, bool periodic);
 extern bool osl_timer_del(osl_t *osh, osl_timer_t *t);

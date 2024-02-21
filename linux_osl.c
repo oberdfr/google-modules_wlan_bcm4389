@@ -1,7 +1,7 @@
 /*
  * Linux OS Independent Layer
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -158,12 +158,13 @@ static int16 linuxbcmerrormap[] =
 	-EINVAL,		/* BCME_ACTIVE */
 	-EINVAL,		/* BCME_IN_PROGRESS */
 	-EINVAL,		/* BCME_NOP */
+	-EINVAL,		/* BCME_6GCH_EPERM */
 
 /* When an new error code is added to bcmutils.h, add os
  * specific error translation here as well
  */
 /* check if BCME_LAST changed since the last time this function was updated */
-#if BCME_LAST != BCME_NOP
+#if BCME_LAST != BCME_6GCH_EPERM
 #error "You need to add a OS error translation in the linuxbcmerrormap \
 	for new error code defined in bcmutils.h"
 #endif
@@ -385,16 +386,6 @@ void* osl_get_bus_handle(osl_t *osh)
 {
 	return osh->bus_handle;
 }
-
-#if defined(AXI_TIMEOUTS_NIC)
-void osl_set_bpt_cb(osl_t *osh, void *bpt_cb, void *bpt_ctx)
-{
-	if (osh) {
-		osh->bpt_cb = (bpt_cb_fn)bpt_cb;
-		osh->sih = bpt_ctx;
-	}
-}
-#endif	/* AXI_TIMEOUTS_NIC */
 
 void
 osl_detach(osl_t *osh)
@@ -1399,7 +1390,6 @@ osl_dma_alloc_consistent(osl_t *osh, uint size, uint16 align_bits, uint *alloced
 void
 osl_dma_free_consistent(osl_t *osh, void *va, uint size, dmaaddr_t pa)
 {
-	struct pci_dev *pdev = osh->pdev;
 #ifdef BCMDMA64OSL
 	dma_addr_t paddr;
 #endif /* BCMDMA64OSL */
@@ -1411,9 +1401,9 @@ osl_dma_free_consistent(osl_t *osh, void *va, uint size, dmaaddr_t pa)
 #else
 #ifdef BCMDMA64OSL
 	PHYSADDRTOULONG(pa, paddr);
-	dma_free_coherent(&pdev->dev, size, va, paddr);
+	DHD_DMA_FREE_COHERENT(osh->pdev, size, va, paddr);
 #else
-	dma_free_coherent(&pdev->dev, size, va, (dma_addr_t)pa);
+	DHD_DMA_FREE_COHERENT(osh->pdev, size, va, (dma_addr_t)pa);
 #endif /* BCMDMA64OSL */
 #endif /* __ARM_ARCH_7A__ && !DHD_USE_COHERENT_MEM_FOR_RING */
 }
@@ -1436,7 +1426,6 @@ dmaaddr_t
 BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p,
 	hnddma_seg_map_t *dmah)
 {
-	struct pci_dev *pdev = osh->pdev;
 	int dir;
 	dmaaddr_t ret_addr;
 	dma_addr_t map_addr;
@@ -1450,9 +1439,9 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 	/* For Rx buffers, keep direction as bidirectional to handle packet fetch cases */
 	dir = (direction == DMA_RX)? DMA_RXTX: direction;
 
-	map_addr = dma_map_single(&pdev->dev, va, size, dir);
+	map_addr = DHD_DMA_MAP_SINGLE(osh->pdev, va, size, dir);
 
-	ret = dma_mapping_error(&pdev->dev, map_addr);
+	ret = DHD_DMA_MAPPING_ERROR(osh->pdev, map_addr);
 
 	if (ret) {
 		OSL_PRINT(("%s: Failed to map memory\n", __FUNCTION__));
@@ -1475,7 +1464,6 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 void
 BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 {
-	struct pci_dev *pdev = osh->pdev;
 	int dir;
 #ifdef BCMDMA64OSL
 	dma_addr_t paddr;
@@ -1495,9 +1483,9 @@ BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 
 #ifdef BCMDMA64OSL
 	PHYSADDRTOULONG(pa, paddr);
-	dma_unmap_single(&pdev->dev, paddr, size, dir);
+	DHD_DMA_UNMAP_SINGLE(osh->pdev, paddr, size, dir);
 #else /* BCMDMA64OSL */
-	dma_unmap_single(&pdev->dev, (uint32)pa, size, dir);
+	DHD_DMA_UNMAP_SINGLE(osh->pdev, (uint32)pa, size, dir);
 #endif /* BCMDMA64OSL */
 
 	DMA_UNLOCK(osh);
@@ -2042,43 +2030,6 @@ osl_os_image_size(void *image)
 
 /* Linux Kernel: File Operations: end */
 
-#if defined(AXI_TIMEOUTS_NIC)
-inline void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size)
-{
-	bool poll_timeout = FALSE;
-	static int in_si_clear = FALSE;
-
-	switch (size) {
-	case sizeof(uint8):
-		*(volatile uint8*)v = readb((volatile uint8*)(addr));
-		if (*(volatile uint8*)v == 0xff)
-			poll_timeout = TRUE;
-		break;
-	case sizeof(uint16):
-		*(volatile uint16*)v = readw((volatile uint16*)(addr));
-		if (*(volatile uint16*)v == 0xffff)
-			poll_timeout = TRUE;
-		break;
-	case sizeof(uint32):
-		*(volatile uint32*)v = readl((volatile uint32*)(addr));
-		if (*(volatile uint32*)v == 0xffffffff)
-			poll_timeout = TRUE;
-		break;
-	case sizeof(uint64):
-		*(volatile uint64*)v = *((volatile uint64*)(addr));
-		if (*(volatile uint64*)v == 0xffffffffffffffff)
-			poll_timeout = TRUE;
-		break;
-	}
-
-	if (osh && osh->sih && (in_si_clear == FALSE) && poll_timeout && osh->bpt_cb) {
-		in_si_clear = TRUE;
-		osh->bpt_cb((void *)osh->sih, (void *)addr);
-		in_si_clear = FALSE;
-	}
-}
-#endif /* AXI_TIMEOUTS_NIC */
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
 void
 timer_cb_compat(struct timer_list *tl)
@@ -2092,7 +2043,7 @@ timer_cb_compat(struct timer_list *tl)
 /* Note: All timer api's are thread unsafe and should be protected with locks by caller */
 
 osl_timer_t *
-osl_timer_init(osl_t *osh, const char *name, void (*fn)(ulong arg), ulong arg)
+osl_timer_init(osl_t *osh, const char *name, void (*fn)(void *arg), void *arg)
 {
 	osl_timer_t *t;
 	BCM_REFERENCE(fn);
@@ -2114,6 +2065,11 @@ osl_timer_init(osl_t *osh, const char *name, void (*fn)(ulong arg), ulong arg)
 		strcpy(t->name, name);
 	}
 #endif
+	/* suppress error the mismatched function pointer cast.
+	 * from void (*)(void *) to void (*)(ulong)
+	 * void pointer is compatible with ulong.
+	 */
+	GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE();
 
 	init_timer_compat(t->timer, (linux_timer_fn)fn, arg);
 

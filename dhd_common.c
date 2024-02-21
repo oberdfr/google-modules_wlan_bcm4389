@@ -1,7 +1,7 @@
 /*
  * Broadcom Dongle Host Driver (DHD), common DHD core.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1961,7 +1961,6 @@ dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifidx, wl_ioctl_t *ioc, void *buf, int len)
 		dhdpcie_runtime_bus_wake(dhd_pub, TRUE, dhd_wl_ioctl);
 #endif /* DHD_PCIE_RUNTIMEPM */
 
-#ifdef OEM_ANDROID
 		/*
 		 * If system suspend started before ioctl, after getting d3 ack,
 		 * it will check for wakelock and as ioctl will hold wakelock,
@@ -1981,7 +1980,6 @@ dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifidx, wl_ioctl_t *ioc, void *buf, int len)
 					dhd_pub->dhd_bus_busy_state));
 			}
 		}
-#endif /* OEM_ANDROID */
 
 		DHD_LINUX_GENERAL_LOCK(dhd_pub, flags);
 		if (DHD_BUS_CHECK_SUSPEND_OR_ANY_SUSPEND_IN_PROGRESS(dhd_pub) ||
@@ -4933,8 +4931,15 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 			/* Because WLC_E_ESCAN_RESULT event log are being print too many.
 			* So, DHD_EVENT() changes to be used DHD_TRACE() in HW4 platform.
 			*/
-			DHD_TRACE(("MACEVENT: %s %d, MAC %s, status %d \n",
-				event_name, event_type, eabuf, (int)status));
+			if ((status == WLC_E_STATUS_SUCCESS) || (status == WLC_E_STATUS_ABORT)) {
+				/* print critical scan events via DHD_EVENT */
+				DHD_EVENT(("MACEVENT: %s %d, status %d sync-id %u\n",
+					event_name, event_type, (int)status,
+							dtoh16(escan_result->sync_id)));
+			} else {
+				DHD_TRACE(("MACEVENT: %s %d, MAC %s, status %d \n",
+					event_name, event_type, eabuf, (int)status));
+			}
 #ifdef REPORT_FATAL_TIMEOUTS
 			/* a 'partial' status means the escan is still in progress
 			* any other status implies the escan has either finished or aborted
@@ -5866,8 +5871,9 @@ wl_process_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, uint pktlen
 			dhd_flow_rings_delete(dhd_pub, (uint8)dhd_ifname2idx(dhd_pub->info,
 				event->ifname));
 		}
-		fallthrough;
 #endif /* PCIE_FULL_DONGLE */
+		/* falls through */
+		BCM_FALLTHROUGH;
 	case WLC_E_DEAUTH:
 	case WLC_E_DEAUTH_IND:
 	case WLC_E_DISASSOC:
@@ -5914,7 +5920,8 @@ wl_process_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, uint pktlen
 			ifp->post_roam_evt = FALSE;
 		}
 #endif /* DHD_POST_EAPOL_M1_AFTER_ROAM_EVT */
-		fallthrough;
+		/* fall through */
+		BCM_FALLTHROUGH;
 	default:
 		*ifidx = dhd_ifname2idx(dhd_pub->info, event->ifname);
 		/* push up to external supp/auth */
@@ -8385,7 +8392,7 @@ deinit_dhd_timeouts(dhd_pub_t *pub)
 }
 
 static void
-dhd_cmd_timeout(ulong ctx)
+dhd_cmd_timeout(void *ctx)
 {
 	dhd_pub_t *pub = (dhd_pub_t *)ctx;
 	unsigned long flags;
@@ -8521,7 +8528,7 @@ __dhd_stop_join_timer(dhd_pub_t *pub)
 }
 
 static void
-dhd_join_timeout(ulong ctx)
+dhd_join_timeout(void *ctx)
 {
 	dhd_pub_t *pub = (dhd_pub_t *)ctx;
 	unsigned long flags;
@@ -8642,7 +8649,7 @@ dhd_clear_join_error(dhd_pub_t *pub, uint32 mask)
 }
 
 static void
-dhd_scan_timeout(ulong ctx)
+dhd_scan_timeout(void *ctx)
 {
 	dhd_pub_t *pub = (dhd_pub_t *)ctx;
 	unsigned long flags;
@@ -8768,7 +8775,7 @@ exit_null:
 }
 
 static void
-dhd_bus_timeout(ulong ctx)
+dhd_bus_timeout(void *ctx)
 {
 	dhd_pub_t *pub = (dhd_pub_t *)ctx;
 	unsigned long flags;

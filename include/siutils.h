@@ -2,7 +2,7 @@
  * Misc utility routines for accessing the SOC Interconnects
  * of Broadcom HNBU chips.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -632,15 +632,15 @@ extern int si_pcie_configspace_get(const si_t *sih, uint8 *buf, uint size);
 
 #ifndef BCMDONGLEHOST
 extern void si_muxenab(si_t *sih, uint32 w);
-uint32 si_clear_backplane_to(si_t *sih);
+extern uint32 si_clear_backplane_to(si_t *sih);
 extern void si_slave_wrapper_add(si_t *sih);
 
 #ifdef AXI_TIMEOUTS_NIC
-uint32 si_clear_backplane_to_fast(void *sih, void *addr);
+extern uint32 si_clear_backplane_to_fast(void *sih, void *addr);
 #endif /* AXI_TIMEOUTS_NIC */
 
 #if defined(AXI_TIMEOUTS) || defined(AXI_TIMEOUTS_NIC)
-uint32 si_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit, void *wrap);
+extern uint32 si_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit, void *wrap);
 #endif /* AXI_TIMEOUTS || AXI_TIMEOUTS_NIC */
 #endif /* !BCMDONGLEHOST */
 
@@ -961,6 +961,7 @@ bool si_srpwr_cap(si_t *sih);
  *      Host needs to power up
  */
 #define MULTIBP_CAP(sih)	(BCM4378_CHIP(sih->chip) || BCM4381_CHIP(sih->chip) || \
+				BCM4383_CHIP(sih->chip) || \
 				BCM43852_CHIP(sih->chip) || BCM4382_CHIP(sih->chip) || \
 				BCM4387_CHIP(sih->chip) || BCM4388_CHIP(sih->chip) || \
 				BCM4389_CHIP(sih->chip) || BCM4385_CHIP(sih->chip) || \

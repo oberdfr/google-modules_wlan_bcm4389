@@ -1,7 +1,7 @@
 /*
  * bcmevent read-only data shared by kernel or app layers
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -28,6 +28,7 @@
 #include <bcmeth.h>
 #include <bcmevent.h>
 #include <802.11.h>
+#include <802.11brcm.h>
 
 /* Table of event name strings for UIs and debugging dumps */
 typedef struct {
@@ -247,6 +248,7 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 	BCMEVENT_NAME(WLC_E_MLO_LINK_INFO),
 	BCMEVENT_NAME(WLC_E_C2C),
 	BCMEVENT_NAME(WLC_E_BCN_TSF),
+	BCMEVENT_NAME(WLC_E_OWE_INFO),
 };
 
 const char *bcmevent_get_name(uint event_type)

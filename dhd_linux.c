@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface.
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -136,8 +136,6 @@
 /* XXX: Enabling VO AMPDU to reduce FER */
 #include <802.1d.h>
 #endif /* AMPDU_VO_ENABLE */
-
-#include <net/ndisc.h>
 
 #if defined(DHDTCPACK_SUPPRESS) || defined(DHDTCPSYNC_FLOOD_BLK)
 #include <dhd_ip.h>
@@ -485,7 +483,6 @@ static void dhd_ifadd_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_ifdel_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event);
-static void dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event);
 #ifdef BCM_ROUTER_DHD
 static void dhd_inform_dhd_monitor_handler(void *handle, void *event_info, u8 event);
 #endif
@@ -628,6 +625,27 @@ module_param(fis_enab, uint, 0);
 static int dhd_found = 0;
 static int instance_base = 0; /* Starting instance number */
 module_param(instance_base, int, 0644);
+
+#if defined(DHD_LB_RXP) && defined(PCIE_FULL_DONGLE)
+/*
+ * Rx path process budget(dhd_napi_weight) number of packets in one go and hands over
+ * the packets to network stack.
+ *
+ * dhd_dpc tasklet is the producer(packets received from dongle) and dhd_napi_poll()
+ * is the consumer. The maximum number of packets that can be received from the dongle
+ * at any given point of time are D2HRING_RXCMPLT_MAX_ITEM.
+ * Also DHD will always post fresh rx buffers to dongle while processing rx completions.
+ *
+ * The consumer must consume the packets at equal are better rate than the producer.
+ * i.e if dhd_napi_poll() does not process at the same rate as the producer(dhd_dpc),
+ * rx_process_queue depth increases, which can even consume the entire system memory.
+ * Such situation will be tacken care by rx flow control.
+ *
+ * Device drivers are strongly advised to not use bigger value than NAPI_POLL_WEIGHT
+ */
+static int dhd_napi_weight = NAPI_POLL_WEIGHT;
+module_param(dhd_napi_weight, int, 0644);
+#endif /* DHD_LB_RXP && PCIE_FULL_DONGLE */
 
 #ifdef PCIE_FULL_DONGLE
 extern uint h2d_max_txpost;
@@ -3070,7 +3088,7 @@ _dhd_set_mac_address(dhd_info_t *dhd, int ifidx, uint8 *addr)
 	if (ret < 0) {
 		DHD_ERROR(("%s: set cur_etheraddr failed\n", dhd_ifname(&dhd->pub, ifidx)));
 	} else {
-		__dev_addr_set(dhd->iflist[ifidx]->net, addr, ETHER_ADDR_LEN);
+		NETDEV_ADDR_SET(dhd->iflist[ifidx]->net, ETHER_ADDR_LEN, addr, ETHER_ADDR_LEN);
 		if (ifidx == 0)
 			memcpy(dhd->pub.mac.octet, addr, ETHER_ADDR_LEN);
 	}
@@ -3415,36 +3433,6 @@ done:
 }
 
 static void
-dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
-{
-	struct net_device *net = event_info;
-
-	if (event != DHD_WQ_WORK_NDEV_UPD_FEATURES) {
-		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
-		return;
-	}
-	if (!net) {
-		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
-		return;
-	}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	rtnl_lock();
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
-	netdev_update_features(net);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	rtnl_unlock();
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
-}
-
-static void
-dhd_ndev_upd_features(dhd_info_t *dhd, struct net_device *net)
-{
-	dhd_deferred_schedule_work(dhd->dhd_deferred_wq, (void *)net,
-		DHD_WQ_WORK_NDEV_UPD_FEATURES, dhd_ndev_upd_features_handler,
-		DHD_WQ_WORK_PRIORITY_HIGH);
-}
-
-static void
 dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event)
 {
 	dhd_info_t *dhd = handle;
@@ -3550,7 +3538,7 @@ dhd_set_mac_address(struct net_device *dev, void *addr)
 			 * available). Store the address and return. macaddr will be applied
 			 * from interface create context.
 			 */
-			__dev_addr_set(dev, dhdif->mac_addr, ETH_ALEN);
+			NETDEV_ADDR_SET(dev, ETH_ALEN, dhdif->mac_addr, ETH_ALEN);
 			return ret;
 		}
 #endif /* WL_STATIC_IF */
@@ -3653,9 +3641,19 @@ int dhd_sendup(dhd_pub_t *dhdp, int ifidx, void *p)
 			}
 			skbprev = skb;
 		} else {
+			/* If the receive is not processed inside an ISR,
+			 * the softirqd must be woken explicitly to service
+			 * the NET_RX_SOFTIRQ.	In 2.6 kernels, this is handled
+			 * by netif_rx_ni(), but in earlier kernels, we need
+			 * to do it manually.
+			 */
 			bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 				__FUNCTION__, __LINE__);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 			netif_rx(skb);
+#else
+			netif_rx_ni(skb);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 		}
 	}
 
@@ -3940,12 +3938,19 @@ dhd_schedule_delayed_dpc_on_dpc_cpu(dhd_pub_t *dhdp, ulong delay)
 
 #ifdef SHOW_LOGTRACE
 static void
-dhd_netif_rx(struct sk_buff * skb)
+dhd_netif_rx_ni(struct sk_buff * skb)
 {
 	/* Do not call netif_recieve_skb as this workqueue scheduler is
-	 * not from NAPI
+	 * not from NAPI Also as we are not in INTR context, do not call
+	 * netif_rx, instead call netif_rx_ni (for kerenl >= 2.6) which
+	 * does netif_rx, disables irq, raise NET_IF_RX softirq and
+	 * enables interrupts back
 	 */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 	netif_rx(skb);
+#else
+	netif_rx_ni(skb);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 }
 
 static int
@@ -4072,7 +4077,7 @@ dhd_event_logtrace_process_items(dhd_info_t *dhd)
 			}
 #endif /* PCIE_FULL_DONGLE */
 			/* Send pkt UP */
-			dhd_netif_rx(skb);
+			dhd_netif_rx_ni(skb);
 		} else	{
 			/* Don't send up. Free up the packet. */
 			PKTFREE_CTRLBUF(dhdp->osh, skb, FALSE);
@@ -4151,7 +4156,7 @@ dhd_logtrace_thread(void *data)
 		}
 	}
 exit:
-	kthread_complete_and_exit(&tsk->completed, 0);
+	KTHREAD_COMPLETE_AND_EXIT(&tsk->completed, 0);
 	dhdp->logtrace_thr_ts.complete_time = OSL_LOCALTIME_NS();
 }
 #else
@@ -4343,7 +4348,7 @@ dhd_sendup_info_buf(dhd_pub_t *dhdp, uint8 *msg)
 		skb = PKTTONATIVE(dhdp->osh, pkt);
 		skb->dev = dhd->iflist[0]->net;
 		/* Send pkt UP */
-		dhd_netif_rx(skb);
+		dhd_netif_rx_ni(skb);
 	}
 }
 #endif /* EWP_EDL */
@@ -4683,7 +4688,7 @@ dhd_watchdog_thread(void *data)
 		}
 	}
 
-	kthread_complete_and_exit(&tsk->completed, 0);
+	KTHREAD_COMPLETE_AND_EXIT(&tsk->completed, 0);
 }
 
 static void dhd_watchdog(ulong data)
@@ -4788,7 +4793,7 @@ dhd_rpm_state_thread(void *data)
 		}
 	}
 
-	kthread_complete_and_exit(&tsk->completed, 0);
+	KTHREAD_COMPLETE_AND_EXIT(&tsk->completed, 0);
 }
 
 static void dhd_runtimepm(ulong data)
@@ -4922,7 +4927,8 @@ dhd_dpc_thread(void *data)
 			break;
 		}
 	}
-	kthread_complete_and_exit(&tsk->completed, 0);
+
+	KTHREAD_COMPLETE_AND_EXIT(&tsk->completed, 0);
 }
 
 #ifdef BCMPCIE
@@ -5697,48 +5703,7 @@ EXPORT_SYMBOL(dhd_bus_retry_hang_recovery);
 
 #endif /* BT_OVER_SDIO */
 
-void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock)
-{
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	if (need_rtnl_lock) {
-		rtnl_lock();
-		cfg80211_unregister_netdevice(net);
-		rtnl_unlock();
-	} else {
-		cfg80211_unregister_netdevice(net);
-	}
-#else
-	if (need_rtnl_lock) {
-		unregister_netdev(net);
-	} else {
-		unregister_netdevice(net);
-	}
-#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
-	return;
-}
-
-int dhd_register_net(struct net_device *net, bool need_rtnl_lock)
-{
-	int err = 0;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	if (need_rtnl_lock) {
-		rtnl_lock();
-		err = cfg80211_register_netdevice(net);
-		rtnl_unlock();
-	} else {
-		err = cfg80211_register_netdevice(net);
-	}
-#else
-	if (need_rtnl_lock) {
-		err = register_netdev(net);
-	} else {
-		err = register_netdevice(net);
-	}
-#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
-	return err;
-}
-
-static int
+int
 dhd_monitor_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	return 0;
@@ -5818,7 +5783,7 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 	 * So, register_netdev() shouldn't be called. It leads to deadlock.
 	 * To avoid deadlock due to rtnl_lock(), register_netdevice() should be used.
 	 */
-	ret = register_netdevice(dev);
+	ret = dhd_register_net(dev, false);
 	if (ret) {
 		DHD_ERROR(("%s, register_netdev failed for %s\n",
 			__FUNCTION__, dev->name));
@@ -5897,11 +5862,7 @@ dhd_del_monitor_if(dhd_info_t *dhd)
 		if (dhd->monitor_dev->reg_state == NETREG_UNINITIALIZED) {
 			free_netdev(dhd->monitor_dev);
 		} else {
-			if (!rtnl_is_locked()) {
-				unregister_netdev(dhd->monitor_dev);
-			} else {
-				unregister_netdevice(dhd->monitor_dev);
-			}
+			dhd_unregister_net(dhd->monitor_dev, !rtnl_is_locked());
 		}
 		dhd->monitor_dev = NULL;
 	}
@@ -6165,13 +6126,14 @@ done:
 	return bcmerror;
 }
 
-static int dhd_priv_cmd_process_locked(struct net_device *net,
-				       struct ifreq *ifr, void __user *data)
+static int
+dhd_priv_cmd_process_locked(struct net_device *net,
+	struct ifreq *ifr, void __user *data)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
 	dhd_ioctl_t ioc;
-	int ifidx;
 	int bcmerror = BCME_OK;
+	int ifidx;
 	void *local_buf = NULL;           /**< buffer in kernel space */
 	void __user *ioc_buf_user = NULL; /**< buffer in user space */
 	u16 buflen = 0;
@@ -6181,11 +6143,15 @@ static int dhd_priv_cmd_process_locked(struct net_device *net,
 	memset(&ioc, 0, sizeof(ioc));
 
 #ifdef CONFIG_COMPAT
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0))
 	if (in_compat_syscall())
+#else
+	if (is_compat_task())
+#endif /* LINUX_VER >= 4.6 */
 	{
 		compat_wl_ioctl_t compat_ioc;
-		if (copy_from_user(&compat_ioc, data,
-		      sizeof(compat_wl_ioctl_t))) {
+		if (copy_from_user(&compat_ioc,
+			data, sizeof(compat_wl_ioctl_t))) {
 			bcmerror = BCME_BADADDR;
 			goto done;
 		}
@@ -6282,7 +6248,7 @@ done:
 }
 
 static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
-			      void __user *data, int cmd)
+	void __user *data, int cmd)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
 	int ifidx, ret;
@@ -6340,7 +6306,6 @@ done:
 	return ret;
 }
 
-
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 /* XXX For the moment, local ioctls will return BCM errors */
 /* XXX Others return linux codes, need to be changed... */
@@ -6355,7 +6320,7 @@ dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 {
 	return dhd_siocdevprivate(net, ifr, ifr->ifr_data, cmd);
 }
-#endif
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
 /* Flags to indicate if we distingish power off policy when
@@ -6411,7 +6376,7 @@ static void dhd_rollback_cpu_freq(dhd_info_t *dhd)
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 static int
 dhd_siocdevprivate_wrapper(struct net_device *net, struct ifreq *ifr,
-			   void __user *data, int cmd)
+	void __user *data, int cmd)
 {
 	int error;
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
@@ -6430,7 +6395,6 @@ dhd_siocdevprivate_wrapper(struct net_device *net, struct ifreq *ifr,
 	return error;
 }
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 static int
 dhd_ioctl_entry_wrapper(struct net_device *net, struct ifreq *ifr, int cmd)
 {
@@ -6450,7 +6414,6 @@ dhd_ioctl_entry_wrapper(struct net_device *net, struct ifreq *ifr, int cmd)
 
 	return error;
 }
-#endif
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(DHD_TCP_LIMIT_OUTPUT)
@@ -7159,8 +7122,7 @@ dhd_open(struct net_device *net)
 #endif
 
 		/* dhd_sync_with_dongle has been called in dhd_bus_start or wl_android_wifi_on */
-		__dev_addr_set(net, dhd->pub.mac.octet, ETHER_ADDR_LEN);
-
+		NETDEV_ADDR_SET(net, ETHER_ADDR_LEN, dhd->pub.mac.octet, ETHER_ADDR_LEN);
 #ifdef TOE
 		/* Get current TOE mode from dongle */
 		if (dhd_toe_get(dhd, ifidx, &toe_ol) >= 0 && (toe_ol & TOE_TX_CSUM_OL) != 0) {
@@ -7185,11 +7147,16 @@ dhd_open(struct net_device *net)
 		if (dhd->rx_napi_netdev == NULL) {
 			dhd->rx_napi_netdev = dhd->iflist[ifidx]->net;
 			memset(&dhd->rx_napi_struct, 0, sizeof(struct napi_struct));
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+			netif_napi_add_weight(dhd->rx_napi_netdev, &dhd->rx_napi_struct,
+					dhd_napi_poll, dhd_napi_weight);
+#else
 			netif_napi_add(dhd->rx_napi_netdev, &dhd->rx_napi_struct,
-				dhd_napi_poll);
-			DHD_INFO(("%s napi<%p> enabled ifp->net<%p,%s>\n",
+					dhd_napi_poll, dhd_napi_weight);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0) */
+			DHD_INFO(("%s napi<%p> enabled ifp->net<%p,%s> dhd_napi_weight: %d\n",
 				__FUNCTION__, &dhd->rx_napi_struct, net,
-				net->name));
+				net->name, dhd_napi_weight));
 			napi_enable(&dhd->rx_napi_struct);
 			DHD_INFO(("%s load balance init rx_napi_struct\n", __FUNCTION__));
 			skb_queue_head_init(&dhd->rx_napi_queue);
@@ -7203,7 +7170,7 @@ dhd_open(struct net_device *net)
 #endif /* DHD_LB_TXP */
 		dhd->dhd_lb_candidacy_override = FALSE;
 #endif /* DHD_LB */
-		dhd_ndev_upd_features(dhd, net);
+		netdev_update_features(net);
 #ifdef DHD_PM_OVERRIDE
 		g_pm_override = FALSE;
 #endif /* DHD_PM_OVERRIDE */
@@ -7960,6 +7927,47 @@ fail:
 	return NULL;
 }
 
+void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	if (need_rtnl_lock) {
+		rtnl_lock();
+		cfg80211_unregister_netdevice(net);
+		rtnl_unlock();
+	} else {
+		cfg80211_unregister_netdevice(net);
+	}
+#else
+	if (need_rtnl_lock) {
+		unregister_netdev(net);
+	} else {
+		unregister_netdevice(net);
+	}
+#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
+	return;
+}
+
+int dhd_register_net(struct net_device *net, bool need_rtnl_lock)
+{
+	int err = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	if (need_rtnl_lock) {
+		rtnl_lock();
+		err = cfg80211_register_netdevice(net);
+		rtnl_unlock();
+	} else {
+		err = cfg80211_register_netdevice(net);
+	}
+#else
+	if (need_rtnl_lock) {
+		err = register_netdev(net);
+	} else {
+		err = register_netdevice(net);
+	}
+#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
+	return err;
+}
+
 static void
 dhd_cleanup_ifp(dhd_pub_t *dhdp, dhd_if_t *ifp)
 {
@@ -8127,15 +8135,18 @@ static struct net_device_ops dhd_ops_pri = {
 	.ndo_stop = dhd_pri_stop,
 	.ndo_get_stats = dhd_get_stats,
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry_wrapper,
+#else
 	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry,
 #else
 	.ndo_siocdevprivate = dhd_siocdevprivate,
-#endif
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
@@ -8160,14 +8171,14 @@ static struct net_device_ops dhd_ops_virt = {
 	.ndo_do_ioctl = dhd_ioctl_entry_wrapper,
 #else
 	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
-#endif
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.ndo_do_ioctl = dhd_ioctl_entry,
 #else
 	.ndo_siocdevprivate = dhd_siocdevprivate,
-#endif
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
@@ -8245,6 +8256,7 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	uint32 size = 0, mem_offset = 0;
 #else
 	struct file *filep = NULL;
+	MM_SEGMENT_T fs;
 #endif /* DHD_LINUX_STD_FW_API */
 	char *raw_fmts = NULL, *raw_fmts_loc = NULL, *cptr = NULL;
 	uint32 read_size = READ_NUM_BYTES;
@@ -8281,6 +8293,9 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	}
 	size = fw->size;
 #else
+
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
+
 	filep = dhd_filp_open(fname, O_RDONLY, 0);
 	if (IS_ERR(filep) || (filep == NULL)) {
 		DHD_ERROR(("%s: Failed to open %s \n",  __FUNCTION__, fname));
@@ -8445,6 +8460,8 @@ fail:
 #else
 	if (!IS_ERR(filep))
 		dhd_filp_close(filep, NULL);
+
+	SETFS(fs);
 
 #endif /* DHD_LINUX_STD_FW_API */
 	if (!(count & PC_FOUND_BIT)) {
@@ -8659,6 +8676,7 @@ dhd_init_logstrs_array(osl_t *osh, dhd_event_log_t *temp)
 {
 	struct file *filep = NULL;
 	struct kstat stat;
+	MM_SEGMENT_T fs;
 	char *raw_fmts =  NULL;
 	int logstrs_size = 0;
 	int error = 0;
@@ -8667,6 +8685,8 @@ dhd_init_logstrs_array(osl_t *osh, dhd_event_log_t *temp)
 		DHD_ERROR_NO_HW4(("%s : turned off logstr parsing\n", __FUNCTION__));
 		return BCME_ERROR;
 	}
+
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	filep = dhd_filp_open(logstrs_path, O_RDONLY, 0);
 
@@ -8705,6 +8725,7 @@ dhd_init_logstrs_array(osl_t *osh, dhd_event_log_t *temp)
 	if (dhd_parse_logstrs_file(osh, raw_fmts, logstrs_size, temp)
 			== BCME_OK) {
 		dhd_filp_close(filep, NULL);
+		SETFS(fs);
 		return BCME_OK;
 	}
 
@@ -8720,6 +8741,7 @@ dhd_init_logstrs_array(osl_t *osh, dhd_event_log_t *temp)
 	if (!IS_ERR(filep))
 		dhd_filp_close(filep, NULL);
 
+	SETFS(fs);
 	temp->fmts = NULL;
 	temp->raw_fmts = NULL;
 
@@ -8731,12 +8753,15 @@ dhd_read_map(osl_t *osh, char *fname, uint32 *ramstart, uint32 *rodata_start,
 		uint32 *rodata_end)
 {
 	struct file *filep = NULL;
+	MM_SEGMENT_T fs;
 	int err = BCME_ERROR;
 
 	if (fname == NULL) {
 		DHD_ERROR(("%s: ERROR fname is NULL \n", __FUNCTION__));
 		return BCME_ERROR;
 	}
+
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	filep = dhd_filp_open(fname, O_RDONLY, 0);
 	if (IS_ERR(filep) || (filep == NULL)) {
@@ -8752,6 +8777,8 @@ fail:
 	if (!IS_ERR(filep))
 		dhd_filp_close(filep, NULL);
 
+	SETFS(fs);
+
 	return err;
 }
 
@@ -8759,6 +8786,7 @@ static int
 dhd_init_static_strs_array(osl_t *osh, dhd_event_log_t *temp, char *str_file, char *map_file)
 {
 	struct file *filep = NULL;
+	MM_SEGMENT_T fs;
 	char *raw_fmts =  NULL;
 	uint32 logstrs_size = 0;
 	int error = 0;
@@ -8780,6 +8808,8 @@ dhd_init_static_strs_array(osl_t *osh, dhd_event_log_t *temp, char *str_file, ch
 	}
 	DHD_ERROR(("ramstart: 0x%x, rodata_start: 0x%x, rodata_end:0x%x\n",
 		ramstart, rodata_start, rodata_end));
+
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	filep = dhd_filp_open(str_file, O_RDONLY, 0);
 	if (IS_ERR(filep) || (filep == NULL)) {
@@ -8838,6 +8868,7 @@ dhd_init_static_strs_array(osl_t *osh, dhd_event_log_t *temp, char *str_file, ch
 	}
 
 	dhd_filp_close(filep, NULL);
+	SETFS(fs);
 
 	return BCME_OK;
 
@@ -8849,6 +8880,8 @@ fail:
 fail1:
 	if (!IS_ERR(filep))
 		dhd_filp_close(filep, NULL);
+
+	SETFS(fs);
 
 	if (strstr(str_file, ram_file_str) != NULL) {
 		temp->raw_sstr = NULL;
@@ -10542,6 +10575,7 @@ static int dhd_preinit_proc(dhd_pub_t *dhd, int ifidx, char *name, char *value)
 
 static int dhd_preinit_config(dhd_pub_t *dhd, int ifidx)
 {
+	MM_SEGMENT_T fs;
 	struct kstat stat;
 	struct file *fp = NULL;
 	unsigned int len;
@@ -10557,11 +10591,15 @@ static int dhd_preinit_config(dhd_pub_t *dhd, int ifidx)
 		return 0;
 	}
 
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
+
 	if ((ret = dhd_vfs_stat(config_path, &stat))) {
+		SETFS(fs);
 		printk(KERN_ERR "%s: Failed to get information (%d)\n",
 			config_path, ret);
 		return ret;
 	}
+	SETFS(fs);
 
 	if (!(buf = MALLOC(dhd->osh, stat.size + 1))) {
 		printk(KERN_ERR "Failed to allocate memory %llu bytes\n", stat.size);
@@ -13850,7 +13888,7 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 	 * XXX Linux 2.6.25 does not like a blank MAC address, so use a
 	 * dummy address until the interface is brought up.
 	 */
-	__dev_addr_set(net, temp_addr, ETHER_ADDR_LEN);
+	NETDEV_ADDR_SET(net, ETHER_ADDR_LEN, temp_addr, ETHER_ADDR_LEN);
 
 	if (ifidx == 0)
 		DHD_CONS_ONLY(("%s\n", dhd_version));
@@ -14095,6 +14133,8 @@ void dhd_detach(dhd_pub_t *dhdp)
 		osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.dbg->pkt_mon_lock);
 #endif /* DBG_PKT_MON */
 #endif /* DEBUGABILITY */
+
+		/* dbg->private and dbg freed after calling below */
 		dhd_os_dbg_detach(dhdp);
 	}
 
@@ -14270,6 +14310,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 		dhdp->dbus = NULL;
 	}
 #endif /* BCMDBUS */
+
 #ifdef DHD_MEM_STATS
 	osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.mem_stats_lock);
 #endif /* DHD_MEM_STATS */
@@ -15594,7 +15635,11 @@ dhd_sendup_log(dhd_pub_t *dhdp, void *data, int data_len)
 		bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 			__FUNCTION__, __LINE__);
 		/* Send the packet */
-		netif_rx(skb);
+		if (in_interrupt()) {
+			netif_rx(skb);
+		} else {
+			netif_rx_ni(skb);
+		}
 	} else {
 		/* Could not allocate a sk_buf */
 		DHD_ERROR(("%s: unable to alloc sk_buf", __FUNCTION__));
@@ -16661,7 +16706,6 @@ dhd_dev_set_rssi_monitor_cfg(struct net_device *dev, int start,
 	wl_rssi_monitor_cfg_t rssi_monitor;
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
 
-
 	ifidx = dhd_net2idx(dhd, dev);
 	if (ifidx == DHD_BAD_IF) {
 		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
@@ -17720,6 +17764,9 @@ int write_file(const char * file_name, uint32 flags, uint8 *buf, int size)
 	int ret = 0;
 	struct file *fp = NULL;
 	loff_t pos = 0;
+	MM_SEGMENT_T fs;
+	/* change to KERNEL_DS address limit */
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	/* open file to write */
 	fp = dhd_filp_open(file_name, flags, 0664);
@@ -17748,6 +17795,7 @@ exit:
 	if (!IS_ERR(fp))
 		dhd_filp_close(fp, current->files);
 
+	SETFS(fs);
 	return ret;
 }
 #endif /* BCM_ROUTER_DHD || DHD_DEBUG */
@@ -19139,7 +19187,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 		DHD_ERROR(("%s: dhdp is NULL\n", __FUNCTION__));
 		return;
 	}
-	/* keep it locally to avoid overwriting in other contexts */
+	/* to keep it in case other memdump overwrites it */
 	memdump_type = dhdp->memdump_type;
 
 	DHD_GENERAL_LOCK(dhdp, flags);
@@ -21045,6 +21093,9 @@ dhd_write_file(const char *filepath, char *buf, int buf_len)
 {
 	struct file *fp = NULL;
 	int ret = 0;
+	MM_SEGMENT_T fs;
+	/* change to KERNEL_DS address limit */
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	/* File is always created. */
 	fp = dhd_filp_open(filepath, O_RDWR | O_CREAT, 0664);
@@ -21066,6 +21117,8 @@ dhd_write_file(const char *filepath, char *buf, int buf_len)
 		dhd_filp_close(fp, NULL);
 	}
 
+	SETFS(fs);
+
 	return ret;
 }
 
@@ -21074,15 +21127,22 @@ dhd_read_file(const char *filepath, char *buf, int buf_len)
 {
 	struct file *fp = NULL;
 	int ret;
+	MM_SEGMENT_T fs;
+	/* change to KERNEL_DS address limit */
+	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
 
 	fp = dhd_filp_open(filepath, O_RDONLY, 0);
 	if (IS_ERR(fp) || (fp == NULL)) {
+		SETFS(fs);
 		DHD_ERROR(("%s: File %s doesn't exist\n", __FUNCTION__, filepath));
 		return BCME_ERROR;
 	}
 
 	ret = dhd_kernel_read_compat(fp, 0, buf, buf_len);
 	dhd_filp_close(fp, NULL);
+
+	/* restore previous address limit */
+	SETFS(fs);
 
 	/* Return the number of bytes read */
 	if (ret > 0) {
@@ -21725,19 +21785,17 @@ void
 dhd_print_kirqstats(dhd_pub_t *dhd, unsigned int irq_num)
 {
 	unsigned long flags = 0;
-	struct irq_data *data;
 	struct irq_desc *desc;
 	int i;          /* cpu iterator */
 	struct bcmstrbuf strbuf;
 	char tmp_buf[KIRQ_PRINT_BUF_LEN];
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28))
-	data = irq_get_irq_data(irq_num);
-	if (!data) {
-		DHD_ERROR(("%s : failed to get irq data\n", __FUNCTION__));
+	desc = dhd_irq_to_desc(irq_num);
+	if (!desc) {
+		DHD_ERROR(("%s : irqdesc is not found \n", __FUNCTION__));
 		return;
 	}
-	desc = irq_data_to_desc(data);
 	bcm_binit(&strbuf, tmp_buf, KIRQ_PRINT_BUF_LEN);
 	raw_spin_lock_irqsave(&desc->lock, flags);
 	bcm_bprintf(&strbuf, "dhd irq %u:", irq_num);
@@ -21814,7 +21872,9 @@ dhd_print_tasklet_status(dhd_pub_t *dhd)
 	}
 
 	DHD_ERROR(("DHD Tasklet status : 0x%lx\n", dhdinfo->tasklet.state));
+#ifndef BCMDBUS
 	DHD_ERROR(("DPC thread thr_pid: %ld\n", dhdinfo->thr_dpc_ctl.thr_pid));
+#endif /* BCMDBUS */
 }
 
 #if defined(DHD_MQ) && defined(DHD_MQ_STATS)
@@ -23375,7 +23435,6 @@ void wifi_plat_dev_drv_shutdown(struct platform_device *pdev)
 void
 dhd_wl_sock_qos_set_status(dhd_pub_t *dhdp, unsigned long on_off)
 {
-	dhd_sock_qos_set_status(dhdp->info, on_off);
 }
 #endif /* WL_AUTO_QOS */
 
@@ -23607,6 +23666,19 @@ int dhd_os_send_alert_message(dhd_pub_t *dhdp)
 	return ret;
 }
 #endif /* WL_CFGVENDOR_SEND_ALERT_EVENT */
+
+void *dhd_irq_to_desc(unsigned int irq)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
+	struct irq_data *irqdata = irq_get_irq_data(irq);
+	struct irq_desc *desc = irq_data_to_desc(irqdata);
+#else
+	struct irq_desc *desc = irq_to_desc(irq);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0) */
+
+	return (void *)desc;
+}
+
 int
 dhd_dev_set_accel_force_reg_on(struct net_device *dev)
 {

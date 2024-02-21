@@ -1,7 +1,7 @@
 /*
  * Common header file for all error codes.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -135,8 +135,9 @@ typedef int bcmerror_t;
 #define BCME_ACTIVE			-76	/* Command/context is already active */
 #define BCME_IN_PROGRESS		-77	/* Command/context is in progress */
 #define BCME_NOP			-78	/* No action taken i.e. NOP */
+#define BCME_6GCH_EPERM			-79	/* 6G channel is not permitted */
 
-#define BCME_LAST			BCME_NOP
+#define BCME_LAST			BCME_6GCH_EPERM
 
 #define BCME_NOTENABLED BCME_DISABLED
 
@@ -231,6 +232,7 @@ typedef int bcmerror_t;
 	"Command/context already active", \
 	"Command/context is in progress", \
 	"No action taken i.e. NOP",	\
+	"6G Not permitted", \
 }
 
 /* FTM error codes [-1024, -2047] */

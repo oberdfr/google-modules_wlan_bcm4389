@@ -1,7 +1,7 @@
 /*
  * EVENT_LOG system definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -571,8 +571,11 @@
 #define EVENT_LOG_TAG_OWE_INFO			449
 #define EVENT_LOG_TAG_OWE_ERR			450
 
+/* Additional RRM event log (for Beacon report specifically) */
+#define EVENT_LOG_TAG_RRM_BCN_RPT		451
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			450
+#define EVENT_LOG_TAG_MAX			451
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

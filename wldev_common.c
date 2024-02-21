@@ -1,7 +1,7 @@
 /*
  * Common function shared by Linux WEXT, cfg80211 and p2p drivers
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -92,6 +92,7 @@ static s32 wldev_ioctl(
 	ret = dhd_ioctl_entry_local(dev, (wl_ioctl_t *)&ioc, cmd);
 #else
 	struct ifreq ifr;
+	mm_segment_t fs;
 
 	bzero(&ioc, sizeof(ioc));
 	ioc.cmd = cmd;
@@ -103,9 +104,14 @@ static s32 wldev_ioctl(
 	ifr.ifr_data = (caddr_t)&ioc;
 
 	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
-	ret = dev->netdev_ops->ndo_siocdevprivate(dev, &ifr, ifr.ifr_data,
-						  SIOCDEVPRIVATE);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+	ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, SIOCDEVPRIVATE);
+#else
+	ret = dev->netdev_ops->ndo_siocdevprivate(dev, &ifr, ifr.ifr_data, SIOCDEVPRIVATE);
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
 	SETFS(fs);
+
+	ret = 0;
 #endif /* defined(BCMDONGLEHOST) */
 
 	return ret;

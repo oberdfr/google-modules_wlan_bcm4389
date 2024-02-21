@@ -1,7 +1,7 @@
 /*
  * Linux cfgp2p driver
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -39,6 +39,7 @@
 #include <bcmendian.h>
 #include <ethernet.h>
 #include <802.11.h>
+#include <802.11wfa.h>
 #include <net/rtnetlink.h>
 
 #include <wl_cfg80211.h>
@@ -2523,7 +2524,7 @@ wl_cfgp2p_register_ndev(struct bcm_cfg80211 *cfg)
 #endif
 
 	/* Register with a dummy MAC addr */
-	__dev_addr_set(net, temp_addr, ETHER_ADDR_LEN);
+	memcpy(net->dev_addr, temp_addr, ETHER_ADDR_LEN);
 
 #ifndef	WL_NEWCFG_PRIVCMD_SUPPORT
 	wdev->wiphy = cfg->wdev->wiphy;
@@ -2545,7 +2546,6 @@ wl_cfgp2p_register_ndev(struct bcm_cfg80211 *cfg)
 	/* Associate p2p0 network interface with new wdev */
 	wdev->netdev = net;
 #endif /* WL_NEWCFG_PRIVCMD_SUPPORT */
-
 	ret = dhd_register_net(net, true);
 	if (ret) {
 		CFGP2P_ERR((" register_netdevice failed (%d)\n", ret));
@@ -2688,8 +2688,8 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 
 #if defined(WL_NEWCFG_PRIVCMD_SUPPORT)
 	if (cfg->p2p_net)
-		__dev_addr_set(cfg->p2p_net, wl_to_p2p_bss_macaddr(cfg, P2PAPI_BSSCFG_DEVICE),
-			       ETHER_ADDR_LEN);
+		memcpy(cfg->p2p_net->dev_addr, wl_to_p2p_bss_macaddr(cfg, P2PAPI_BSSCFG_DEVICE),
+			ETHER_ADDR_LEN);
 #endif /* WL_NEWCFG_PRIVCMD_SUPPORT */
 
 	/* store p2p wdev ptr for further reference. */

@@ -1,7 +1,7 @@
 /*
  * EVENT_LOG system definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -253,6 +253,7 @@ typedef struct event_log_set {
 #define EVENT_LOG_SET_PERIODIC			BCM_BIT(3)
 #define EVENT_LOG_SET_D3PRSV			BCM_BIT(4)
 #define EVENT_LOG_SET_SHADOW			BCM_BIT(5)
+#define EVENT_LOG_SET_PARTIAL_SENT		BCM_BIT(6)
 
 /* Top data structure for access to everything else */
 typedef struct event_log_top {

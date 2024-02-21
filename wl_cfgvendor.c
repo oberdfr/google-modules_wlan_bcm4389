@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 Vendor Extension Code
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -79,7 +79,6 @@
 #include <wl_cfgp2p.h>
 #include <wl_cfgscan.h>
 #include <wl_cfgvif.h>
-#include <dhd_plat.h>
 #ifdef WL_NAN
 #include <wl_cfgnan.h>
 #endif /* WL_NAN */
@@ -1783,6 +1782,8 @@ wl_cfgvendor_set_hal_started(struct wiphy *wiphy,
 	struct net_device *ndev = wdev_to_wlc_ndev(wdev, cfg);
 	uint32 type;
 
+	cfg->hal_state = HAL_START_IN_PROG;
+
 	if (!data) {
 		WL_DBG(("%s,data is not available\n", __FUNCTION__));
 	} else {
@@ -1792,17 +1793,17 @@ wl_cfgvendor_set_hal_started(struct wiphy *wiphy,
 			if (type == SET_HAL_START_ATTRIBUTE_PRE_INIT) {
 				if (nla_len(data)) {
 					WL_INFORM(("%s, HAL version: %s\n", __FUNCTION__,
-							(char*)nla_data(data)));
+						(char*)nla_data(data)));
 				}
 				WL_INFORM(("%s, dhd_open start\n", __FUNCTION__));
 				ret = dhd_open(ndev);
 				if (ret != BCME_OK) {
 					WL_INFORM(("%s, dhd_open failed\n", __FUNCTION__));
-					return ret;
+					goto exit;
 				} else {
 					WL_INFORM(("%s, dhd_open succeeded\n", __FUNCTION__));
 				}
-				return ret;
+				goto exit;
 			}
 		} else {
 			WL_ERR(("invalid len %d\n", len));
@@ -1812,7 +1813,6 @@ wl_cfgvendor_set_hal_started(struct wiphy *wiphy,
 	RETURN_EIO_IF_NOT_UP(cfg);
 	WL_INFORM(("%s,[DUMP] HAL STARTED\n", __FUNCTION__));
 
-	cfg->hal_started = true;
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_set_dump_status(dhd, DUMP_READY);
 #endif /* DHD_FILE_DUMP_EVENT */
@@ -1827,10 +1827,17 @@ wl_cfgvendor_set_hal_started(struct wiphy *wiphy,
 			"STA MAC address \n", __FUNCTION__));
 		if ((ret = dhd_update_rand_mac_addr(dhd)) < 0) {
 			WL_ERR(("%s: failed to set macaddress, ret = %d\n", __FUNCTION__, ret));
-			return ret;
+			goto exit;
 		}
 	}
 #endif /* WL_STA_ASSOC_RAND */
+	cfg->hal_state = HAL_STARTED;
+
+	return ret;
+#if defined(WL_STA_ASSOC_RAND) || defined(WIFI_TURNON_USE_HALINIT)
+exit:
+#endif /* WL_STA_ASSOC_RAND || WIFI_TURNON_USE_HALINIT */
+	cfg->hal_state = HAL_IDLE;
 	return ret;
 }
 
@@ -1842,12 +1849,19 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* DHD_FILE_DUMP_EVENT */
+	struct net_device *ndev = wdev_to_wlc_ndev(wdev, cfg);
 
-	cfg->hal_started = false;
+	WL_INFORM(("%s, Cleanup virtual_ifaces\n", __FUNCTION__));
+	wl_cfg80211_cleanup_virtual_ifaces(cfg, true);
+	cfg->hal_state = HAL_STOP_IN_PROG;
+
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_set_dump_status(dhd, DUMP_NOT_READY);
 #endif /* DHD_FILE_DUMP_EVENT */
 	WL_INFORM(("%s,[DUMP] HAL STOPPED\n", __FUNCTION__));
+
+	dhd_stop(ndev);
+	cfg->hal_state = HAL_IDLE;
 	return BCME_OK;
 }
 #endif /* WL_CFG80211 */
@@ -4255,13 +4269,9 @@ wl_cfgvendor_nan_parse_datapath_args(struct wiphy *wiphy,
 			}
 			/* take the default channel start_factor frequency */
 			chan = wf_mhz2channel((uint)nla_get_u32(iter), 0);
-			if (chan <= CH_MAX_2G_CHANNEL) {
-				cmd_data->avail_params.chanspec[0] =
-					wf_channel2chspec(chan, WL_CHANSPEC_BW_20);
-			} else {
-				cmd_data->avail_params.chanspec[0] =
-					wf_channel2chspec(chan, WL_CHANSPEC_BW_80);
-			}
+			/* 20MHz as BW */
+			cmd_data->avail_params.chanspec[0] =
+				wf_channel2chspec(chan, WL_CHANSPEC_BW_20);
 			if (cmd_data->avail_params.chanspec[0] == 0) {
 				WL_ERR(("Channel is not valid \n"));
 				ret = -EINVAL;
@@ -5328,11 +5338,8 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 			}
 			/* take the default channel start_factor frequency */
 			chan = wf_mhz2channel((uint)nla_get_u32(iter), 0);
-			if (chan <= CH_MAX_2G_CHANNEL) {
-				cmd_data->chanspec[0] = wf_channel2chspec(chan, WL_CHANSPEC_BW_20);
-			} else {
-				cmd_data->chanspec[0] = wf_channel2chspec(chan, WL_CHANSPEC_BW_80);
-			}
+			/* 20MHz as BW */
+			cmd_data->chanspec[0] = wf_channel2chspec(chan, WL_CHANSPEC_BW_20);
 			if (cmd_data->chanspec[0] == 0) {
 				WL_ERR(("Channel is not valid \n"));
 				ret = -EINVAL;
@@ -8871,7 +8878,7 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 	cfg = wiphy_priv(wiphy);
 
 	/* If wifi hal is not start, don't send event to wifi hal */
-	if (!cfg->hal_started) {
+	if (cfg->hal_state != HAL_STARTED) {
 		WL_CONS_ONLY(("Hal is not started id:%d\n", ring_id));
 		return;
 	}
@@ -10633,10 +10640,6 @@ wl_cfgvendor_twt_setup(struct wiphy *wiphy,
 	uint8 *rem = mybuf;
 	uint16 rem_len = sizeof(mybuf);
 
-#ifdef WLAN_TRACKER
-	dhd_custom_notify(CUSTOM_NOTIFY_TWT_SETUP);
-#endif /* WLAN_TRACKER */
-
 	bzero(&val, sizeof(val));
 	val.version = WL_TWT_SETUP_VER;
 	val.length = sizeof(val.version) + sizeof(val.length);
@@ -10668,7 +10671,7 @@ wl_cfgvendor_twt_setup(struct wiphy *wiphy,
 				if (nla_get_u8(iter) == 1) {
 					val.desc.flow_flags |= WL_TWT_FLOW_FLAG_TRIGGER;
 				}
-				fallthrough;
+				BCM_FALLTHROUGH;
 			case ANDR_TWT_ATTR_WAKE_DURATION:
 				/* Wake Duration */
 				val.desc.wake_dur = nla_get_u32(iter);
@@ -10789,9 +10792,7 @@ wl_cfgvendor_twt_teardown(struct wiphy *wiphy,
 			"Negotiation type %d alltwt %d\n", val.configID,
 			val.teardesc.negotiation_type, val.teardesc.alltwt));
 	}
-#ifdef WLAN_TRACKER
-	dhd_custom_notify(CUSTOM_NOTIFY_TWT_TEARDOWN);
-#endif /* WLAN_TRACKER */
+
 exit:
 	return bw;
 }

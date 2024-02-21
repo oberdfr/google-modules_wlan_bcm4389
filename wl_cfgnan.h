@@ -1,7 +1,7 @@
 /*
  * Neighbor Awareness Networking
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -839,7 +839,6 @@ extern void wl_cfgnan_inst_chan_support(struct bcm_cfg80211 *cfg,
 	wl_chanspec_list_v1_t *chan_list, uint32 band_mask,
 	uint8 *nan_2g, uint8 *nan_pri_5g, uint8* nan_sec_5g);
 #endif /* WL_NAN_INSTANT_MODE */
-#line 825
 int
 wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan);
 

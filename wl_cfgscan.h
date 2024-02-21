@@ -1,7 +1,7 @@
 /*
  * Header for Linux cfg80211 scan
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -219,10 +219,7 @@ extern int wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg,
 #ifdef WL_SCHED_SCAN
 extern void wl_cfgscan_sched_scan_stop_work(struct work_struct *work);
 #endif /* WL_SCHED_SCAN */
-#ifdef WL_SOFTAP_ACS
 extern bool wl_is_chanspec_restricted(struct bcm_cfg80211 *cfg, chanspec_t chspec);
-#endif /* WL_SOFTAP_ACS */
-
 #ifdef ESCAN_CHANNEL_CACHE
 void reset_roam_cache(struct bcm_cfg80211 *cfg);
 void add_roam_cache(struct bcm_cfg80211 *cfg, wl_bss_info_v109_t *bi);

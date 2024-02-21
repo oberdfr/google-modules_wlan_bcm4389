@@ -1,7 +1,7 @@
 /*
  * Wifi Virtual Interface implementaion
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -35,6 +35,10 @@
 #include <eapol.h>
 #endif /* WL_WPS_SYNC */
 #include <802.11.h>
+#ifdef BCMWAPI_WPI
+#include <802.11wapi.h>
+#endif
+#include <802.11wfa.h>
 #include <bcmiov.h>
 #include <linux/if_arp.h>
 #include <asm/uaccess.h>
@@ -125,7 +129,7 @@ _Pragma("GCC diagnostic pop")
 
 /* SoftAP related parameters */
 #define DEFAULT_2G_SOFTAP_CHANNEL	1
-#define DEFAULT_2G_SOFTAP_CHANSPEC	0x1006
+#define DEFAULT_2G_SOFTAP_CHANSPEC	0x1001
 #define DEFAULT_5G_SOFTAP_CHANNEL	149
 
 #define MAX_VNDR_OUI_STR_LEN	256u
@@ -344,6 +348,34 @@ wl_cfg80211_check_vif_in_use(struct net_device *ndev)
 
 	return FALSE;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+void
+wl_cfgvif_delayed_remove_iface_work(struct work_struct *work)
+{
+	struct bcm_cfg80211 *cfg = NULL;
+	struct net_device *ndev;
+
+	BCM_SET_CONTAINER_OF(cfg, work, struct bcm_cfg80211, remove_iface_work.work);
+
+	if (cfg->if_event_info.ifidx) {
+		ndev = bcmcfg_to_prmry_ndev(cfg);
+
+#ifdef BCMDONGLEHOST
+		dhd_net_if_lock(ndev);
+#endif /* BCMDONGLEHOST */
+		rtnl_lock();
+		/* Remove interface except for primary ifidx */
+		wl_cfg80211_remove_if(cfg, cfg->if_event_info.ifidx, ndev, FALSE);
+		rtnl_unlock();
+
+#ifdef BCMDONGLEHOST
+		dhd_net_if_unlock(ndev);
+#endif /* BCMDONGLEHOST */
+	}
+	return;
+}
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
 
 #ifdef WL_IFACE_MGMT_CONF
 #ifdef WL_IFACE_MGMT
@@ -644,7 +676,7 @@ wl_cfg80211_disc_if_mgmt(struct bcm_cfg80211 *cfg,
 				* Intentional fall through to default policy
 				* as for AP and associated ifaces, both are same
 				*/
-				fallthrough;
+				BCM_FALLTHROUGH;
 			}
 			/* falls through */
 			case WL_IF_POLICY_DEFAULT: {
@@ -864,7 +896,11 @@ wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg,
 #endif /* WL_IFACE_MGMT */
 
 s32
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_iftype)
+#else
+wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype)
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) */
 {
 	struct net_device *ndev =  bcmcfg_to_prmry_ndev(cfg);
 	u16 org_toggle_bytes;
@@ -894,7 +930,6 @@ wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_ifty
 #ifdef WL_NAN
 	if (!((cfg->nancfg->mac_rand) && (wl_iftype == WL_IF_TYPE_NAN)))
 #endif /* WL_NAN */
-#line 902
 	{
 		/* Fetch last two bytes of mac address */
 		org_toggle_bytes = ntoh16(*((u16 *)&ndev->dev_addr[4]));
@@ -908,8 +943,8 @@ wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_ifty
 			 * mask. Clear it.
 			 */
 			cfg->vif_macaddr_mask &= ~toggled_bit;
-			WL_INFORM(("MAC address - "
-				MACDBG " released. toggled_bit:%04X vif_mask:%04X\n",
+			WL_INFORM(("MAC address - " MACDBG " released. toggled_bit:%04X"
+				" vif_mask:%04X\n",
 				MAC2STRDBG(mac_addr), toggled_bit, cfg->vif_macaddr_mask));
 		} else {
 			WL_ERR(("MAC address - " MACDBG " not found in the used list."
@@ -918,8 +953,8 @@ wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_ifty
 			return -EINVAL;
 		}
 	}
-	WL_INFORM_MEM(("vif deleted. vif_count:%d\n", cfg->vif_count));
 
+	WL_INFORM_MEM(("vif deleted. vif_count:%d\n", cfg->vif_count));
 	return BCME_OK;
 }
 
@@ -968,6 +1003,7 @@ wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr)
 		return BCME_OK;
 	}
 #endif /* WL_NAN */
+
 	if ((wl_iftype == WL_IF_TYPE_P2P_DISC) && p2p_dev_addr &&
 		ETHER_IS_LOCALADDR(p2p_dev_addr)) {
 		/* If mac address is already generated return the mac */
@@ -1119,7 +1155,7 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	}
 
 #ifdef WL_NAN
-	if (wl_iftype == WL_IF_TYPE_STA && IS_NDI_IFACE(wdev->netdev->name)) {
+	if ((wl_iftype == WL_IF_TYPE_STA) && (IS_NDI_IFACE(wdev->netdev->name))) {
 		if (wl_cfgnan_is_enabled(cfg) == false) {
 			WL_INFORM_MEM(("Nan is not active, ignore NDI delete\n"));
 			return ret;
@@ -1367,8 +1403,8 @@ wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_device *ndev,
 		if (ndev->ieee80211_ptr->iftype == NL80211_IFTYPE_STATION) {
 			break;
 		}
-		fallthrough;
 #endif /* WL_CFG80211_MONITOR */
+		BCM_FALLTHROUGH;
 	case NL80211_IFTYPE_WDS:
 	case NL80211_IFTYPE_MESH_POINT:
 		/* Intentional fall through */
@@ -1494,8 +1530,8 @@ wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd
 			if (!IS_CFG80211_STATIC_IF(cfg, iter->ndev))
 #endif /* WL_STATIC_IF */
 			{
+				WL_INFORM(("Cleaning up iface:%s \n", iter->ndev->name));
 				dev_close(iter->ndev);
-				WL_DBG(("Cleaning up iface:%s \n", iter->ndev->name));
 #if defined(WLAN_ACCEL_BOOT)
 				/* Trigger force reg_on to ensure clean up of virtual interface
 				* states in FW for any residual interface states, casued due to
@@ -1505,6 +1541,11 @@ wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd
 				" interface states in FW\n"));
 				dhd_dev_set_accel_force_reg_on(iter->ndev);
 #endif /* WLAN_ACCEL_BOOT */
+				if ((cfg->hal_state == HAL_START_IN_PROG) ||
+					(cfg->hal_state == HAL_STOP_IN_PROG)) {
+					/* hold the rtnl lock explicitly for vendor hal callers */
+					rtnl_lock_reqd = true;
+				}
 				wl_cfg80211_post_ifdel(iter->ndev, rtnl_lock_reqd, 0);
 			}
 		}
@@ -1649,13 +1690,12 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 	s32 err = BCME_OK;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	wl_ap_oper_data_t ap_oper_data = {0};
-#if defined(CUSTOM_SET_CPUCORE) || defined(APSTA_RESTRICTED_CHANNEL) || \
-	defined(SUPPORT_AP_INIT_BWCONF)
 	dhd_pub_t *dhd =  (dhd_pub_t *)(cfg->pub);
-#endif /* CUSTOM_SET_CPUCORE || APSTA_RESTRICTED_CHANNEL */
 #if defined(SUPPORT_AP_INIT_BWCONF)
 	u32 configured_bw;
 #endif /* SUPPORT_AP_INIT_BWCONF */
+
+	BCM_REFERENCE(dhd);
 
 	dev = ndev_to_wlc_ndev(dev, cfg);
 	chspec = wl_freq_to_chanspec(chan->center_freq);
@@ -1748,26 +1788,12 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 	}
 #endif /* NOT_YET */
 
-#if defined(APSTA_RESTRICTED_CHANNEL)
-	/* Some customer platform used limited number of channels
-	 * for SoftAP interface on STA/SoftAP concurrent mode.
-	 * - 2.4GHz Channel: CH1 - CH13
-	 * - 5GHz Channel: CH 149, 153, 157, 161 (it depends on the country code)
-	 * If the Android framework sent invaild channel configuration
-	 * to DHD, driver should change the channel which is suitable for
-	 * STA/SoftAP concurrent mode.
-	 * - Set operating channel to CH1 (default 2.4GHz channel for
-	 *   restricted APSTA mode) if STA interface was associated to
-	 *   5GHz APs except for CH149, 153, 157, 161.
-	 * - Otherwise, set the channel to the same channel as existing AP.
-	 */
 	if (wl_get_mode_by_netdev(cfg, dev) == WL_MODE_AP &&
 		DHD_OPMODE_STA_SOFTAP_CONCURR(dhd) &&
 		wl_get_drv_status(cfg, CONNECTED, bcmcfg_to_prmry_ndev(cfg))) {
-		u32 *sta_chanspec = (u32 *)wl_read_prof(cfg,
+		chanspec_t *sta_chanspec = (chanspec_t *)wl_read_prof(cfg,
 			bcmcfg_to_prmry_ndev(cfg), WL_PROF_CHAN);
 		if (chan->band == wl_get_nl80211_band(CHSPEC_BAND(*sta_chanspec))) {
-			/* Do not try SCC in 5GHz if channel is not CH149 */
 			chspec = (
 #ifdef WL_6G_BAND
 				(CHSPEC_IS6G(*sta_chanspec) &&
@@ -1775,9 +1801,34 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 				  (wf_chspec_primary20_chspec(*sta_chanspec) !=
 				   wf_chspec_primary20_chspec(chspec)))) ||
 #endif /* WL_6G_BAND */
+				(
+#if defined(APSTA_RESTRICTED_CHANNEL)
+				 /* Do not try SCC in 5GHz if channel is not CH149, 153, 157, 161 */
+
+				 /* Some customer platform used limited number of channels
+				  * for SoftAP interface on STA/SoftAP concurrent mode.
+				  * - 2.4GHz Channel: CH1 - CH13
+				  * - 5GHz Channel: CH 149, 153, 157, 161
+				  * (it depends on the country code)
+				  * If the Android framework sent invaild channel configuration
+				  * to DHD, driver should change the channel which is suitable for
+				  * STA/SoftAP concurrent mode.
+				  * - Set operating channel to CH1 (default 2.4GHz channel for
+				  *   restricted APSTA mode) if STA interface was associated to
+				  *   5GHz APs except for CH149, 153, 157, 161.
+				  * - Otherwise, set the channel to the same channel as existing AP.
+				  */
+				((CHSPEC_IS5G(*sta_chanspec)) &&
+				(!IS_5G_APCS_CHANNEL(wf_chspec_primary20_chan(*sta_chanspec)))) ||
+#else
+				(wl_is_chanspec_restricted(cfg, *sta_chanspec) ||
+#ifdef WL_UNII4_CHAN
 				(CHSPEC_IS5G(*sta_chanspec) &&
-				!IS_5G_APCS_CHANNEL(wf_chspec_primary20_chan(*sta_chanspec)))) ?
-				DEFAULT_2G_SOFTAP_CHANSPEC: *sta_chanspec;
+				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(*sta_chanspec))) ||
+#endif /* WL_UNII4_CHAN */
+				FALSE) ||
+#endif /* APSTA_RESTRICTED_CHANNEL */
+				FALSE)) ? DEFAULT_2G_SOFTAP_CHANSPEC : *sta_chanspec;
 			WL_ERR(("target chanspec will be changed to %x\n", chspec));
 			if (CHSPEC_IS2G(chspec)) {
 				bw = WL_CHANSPEC_BW_20;
@@ -1785,7 +1836,6 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 			}
 		}
 	}
-#endif /* APSTA_RESTRICTED_CHANNEL */
 
 	err = wl_get_bandwidth_cap(dev, CHSPEC_BAND(chspec), &bw);
 	if (err < 0) {
@@ -3879,7 +3929,11 @@ wl_cfg80211_start_ap(
  */
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)) && !defined(WL_COMPAT_WIRELESS))
 	if ((err = wl_cfg80211_set_channel(wiphy, dev,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 		dev->ieee80211_ptr->u.ap.preset_chandef.chan,
+#else
+		dev->ieee80211_ptr->preset_chandef.chan,
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 		NL80211_CHAN_HT20)) < 0) {
 		WL_ERR(("Set channel failed \n"));
 		goto fail;
@@ -3966,7 +4020,11 @@ fail:
 	if (err) {
 		WL_ERR(("ADD/SET beacon failed\n"));
 		wl_flush_fw_log_buffer(dev, FW_LOGSET_MASK_ALL);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 		wl_cfg80211_stop_ap(wiphy, dev, 0);
+#else
+		wl_cfg80211_stop_ap(wiphy, dev);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 		if (dev_role == NL80211_IFTYPE_AP) {
 #ifdef BCMDONGLEHOST
 			/* If there are no other APs active, clear the AP mode */
@@ -4003,11 +4061,18 @@ fail:
 	return err;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 s32
 wl_cfg80211_stop_ap(
 	struct wiphy *wiphy,
 	struct net_device *dev,
 	unsigned int link_id)
+#else
+s32
+wl_cfg80211_stop_ap(
+	struct wiphy *wiphy,
+	struct net_device *dev)
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 {
 	int err = 0;
 	u32 dev_role = 0;
@@ -5496,7 +5561,14 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wip
 	}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
 	freq = chandef.chan ? chandef.chan->center_freq : chandef.center_freq1;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || defined(WL_CH_SWITCH_BKPORT)
+	/* force set link_id and pucturing bitmap as 0  */
 	cfg80211_ch_switch_notify(dev, &chandef, 0, 0);
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 2)) || defined(WL_MLO_BKPORT)
+	cfg80211_ch_switch_notify(dev, &chandef, 0);
+#else
+	cfg80211_ch_switch_notify(dev, &chandef);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, \
 	0)))
 	freq = chan_info.freq;

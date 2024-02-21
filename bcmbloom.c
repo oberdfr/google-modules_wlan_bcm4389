@@ -1,7 +1,7 @@
 /*
  * Bloom filter support
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,15 @@
 #include <typedefs.h>
 #include <bcmdefs.h>
 
+#if defined(CONFIG_BCMDHD) && defined(__linux__)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 #include <linux/stdarg.h>
+#else
+#include <stdarg.h>
+#endif /* LINUX_VERSION_CODE */
+#else
+#include <stdarg.h>
+#endif /* CONFIG_BCMDHD && __linux__ */
 
 #ifdef BCMDRIVER
 #include <osl.h>

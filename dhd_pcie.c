@@ -1,7 +1,7 @@
 /*
  * DHD Bus Module for PCIE
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -9481,7 +9481,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			/* Wait for D3 ACK for D3_ACK_RESP_TIMEOUT seconds */
 			timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
 		}
-
 #ifdef DHD_RECOVER_TIMEOUT
 		/* XXX: WAR for missing D3 ACK MB interrupt */
 		if (bus->wait_for_d3_ack == 0) {

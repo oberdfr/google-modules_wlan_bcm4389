@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -96,9 +96,9 @@ typedef unsigned long long int uintptr;
 ** math.h header file. Don't re-typedef them here.
 */
 
-#if defined(MACOSX)
+#if defined(MACOSX) || defined(__linux__)
 #define TYPEDEF_FLOAT_T
-#endif /* MACOSX */
+#endif /* MACOSX || Linux */
 
 #if defined(_NEED_SIZE_T_)
 typedef long unsigned int size_t;

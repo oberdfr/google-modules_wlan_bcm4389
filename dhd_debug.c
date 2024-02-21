@@ -1,7 +1,7 @@
 /*
  * DHD debugability support
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -599,6 +599,7 @@ dhd_dbg_process_event_log_hdr(event_log_hdr_t *log_hdr, prcd_event_log_hdr_t *pr
 	event_log_extended_hdr_t *ext_log_hdr;
 	uint16 event_log_fmt_num;
 	uint8 event_log_hdr_type;
+	uint8 extended_fmtnum = 0;
 
 	/* Identify the type of event tag, payload type etc..  */
 	event_log_hdr_type = log_hdr->fmt_num & DHD_EVENT_LOG_HDR_MASK;
@@ -638,14 +639,25 @@ dhd_dbg_process_event_log_hdr(event_log_hdr_t *log_hdr, prcd_event_log_hdr_t *pr
 	if (prcd_log_hdr->ext_event_log_hdr) {
 		ext_log_hdr = (event_log_extended_hdr_t *)
 			((uint8 *)log_hdr - sizeof(event_log_hdr_t));
+		extended_fmtnum = (ext_log_hdr->extended_fmtnum & DHD_EXT_FMTNUM_MASK);
+	}
+	/* Parse extended event log tag */
+	if (prcd_log_hdr->ext_event_log_hdr) {
 		prcd_log_hdr->tag = ((ext_log_hdr->extended_tag &
 			DHD_TW_VALID_TAG_BITS_MASK) << DHD_TW_EVENT_LOG_TAG_OFFSET) | log_hdr->tag;
 	} else {
 		prcd_log_hdr->tag = log_hdr->tag;
 	}
+	/* Parse extended format number */
+	if ((event_log_hdr_type == DHD_TW_NB_EVENT_LOG_HDR) && (extended_fmtnum != 0)) {
+		prcd_log_hdr->fmt_num_raw = (extended_fmtnum << 16) | log_hdr->fmt_num;
+		prcd_log_hdr->fmt_num = (extended_fmtnum << 14) | event_log_fmt_num;
+
+	} else {
+		prcd_log_hdr->fmt_num_raw = log_hdr->fmt_num;
+		prcd_log_hdr->fmt_num = event_log_fmt_num;
+	}
 	prcd_log_hdr->count = log_hdr->count;
-	prcd_log_hdr->fmt_num_raw = log_hdr->fmt_num;
-	prcd_log_hdr->fmt_num = event_log_fmt_num;
 
 	/* update arm cycle */
 	/*
@@ -852,7 +864,7 @@ dhd_dbg_verboselog_printf(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 		return;
 	}
 
-	if ((plog_hdr->fmt_num) < raw_event->num_fmts) {
+	if ((plog_hdr->fmt_num < raw_event->num_fmts) && (plog_hdr->binary_payload == FALSE)) {
 		if (plog_hdr->tag == EVENT_LOG_TAG_MSCHPROFILE) {
 			snprintf(fmtstr_loc_buf, FMTSTR_SIZE, "%s",
 				raw_event->fmts[plog_hdr->fmt_num]);
@@ -879,8 +891,8 @@ dhd_dbg_verboselog_printf(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 		goto exit;
 	}
 
-	if (plog_hdr->count > MAX_NO_OF_ARG) {
-		DHD_ERROR(("%s: plog_hdr->count(%d) out of range\n",
+	if (plog_hdr->binary_payload == FALSE && plog_hdr->count > MAX_NO_OF_ARG) {
+		DHD_INFO(("%s: plog_hdr->count(%d) out of range\n",
 			__FUNCTION__, plog_hdr->count));
 		goto exit;
 	}

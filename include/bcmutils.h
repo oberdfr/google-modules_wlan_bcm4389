@@ -1,7 +1,7 @@
 /*
  * Misc useful os-independent macros and functions.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -578,8 +578,12 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 #define BCME_ROAM			-73	/* Roam related failures */
 #define BCME_NO_SIG_FILE		-74	/* Signature file is missing */
 #define BCME_RESP_PENDING		-75	/* Command response is pending */
+#define BCME_ACTIVE			-76	/* Command/context is already active */
+#define BCME_IN_PROGRESS		-77	/* Command/context is in progress */
+#define BCME_NOP			-78	/* No action taken i.e. NOP */
+#define BCME_6GCH_EPERM			-79	/* 6G channel not permitted */
 
-#define BCME_LAST			BCME_RESP_PENDING
+#define BCME_LAST			BCME_6GCH_EPERM
 
 #define BCME_NOTENABLED BCME_DISABLED
 
@@ -671,6 +675,10 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 	"Critical roam in progress",	\
 	"Signature file is missing",	\
 	"Command response pending",	\
+	"Command/context already active", \
+	"Command/context is in progress", \
+	"No action taken i.e. NOP",	\
+	"6G Not permitted", \
 }
 #endif	/* BCMUTILS_ERR_CODES */
 
@@ -1771,4 +1779,25 @@ extern int print_string(const char *str);
 #else
 #define posttrap_printf(...)		printf(__VA_ARGS__)
 #endif /* DONGLEBUILD */
+
+typedef enum dbg_seq_log_id_e {
+	DBG_SEQ_LOG_ID_RX = 0u,
+	DBG_SEQ_LOG_ID_TX = 1u,
+	DBG_SEQ_LOG_ID_MAX
+} dbg_seq_log_id_t;
+
+#ifdef DBG_SEQ_LOG
+extern void dbg_seq_log_seq(dbg_seq_log_id_t id, uint16 seq, void *arg1, void *arg2);
+#else
+#define dbg_seq_log_seq(id, seq, arg1, arg2)
+#endif /* DBG_SEQ_LOG */
+
+/* common time computation function shared between FW and other SW entities */
+int bcmutils_event_log_compute_current_time(void *ets_msg, uint64 log_record_time,
+	uint64 *current_time);
+
+/* Stringizing */
+#define _BCM_STR(x) #x
+#define BCM_STR(x) _BCM_STR(x)
+
 #endif	/* _bcmutils_h_ */

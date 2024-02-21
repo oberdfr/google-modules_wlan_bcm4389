@@ -1,7 +1,7 @@
 /*
  * Fundamental types and constants relating to WFA MBO
  * (Multiband Operation)
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -23,6 +23,8 @@
 
 #ifndef _MBO_H_
 #define _MBO_H_
+
+#include <802.11wfa.h>
 
 /* This marks the start of a packed structure section. */
 #include <packed_section_start.h>

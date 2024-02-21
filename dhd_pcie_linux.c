@@ -1,7 +1,7 @@
 /*
  * Linux DHD Bus Module for PCIE
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -326,8 +326,8 @@ static int dhdpcie_smmu_init(struct pci_dev *pdev, void *smmu_cxt)
 
 	DHD_ERROR(("%s : SMMU init start\n", __FUNCTION__));
 
-	if (dma_set_mask(&pdev->dev, DMA_BIT_MASK(64)) ||
-		dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(64))) {
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(64)) ||
+		pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		DHD_ERROR(("%s: DMA set 64bit mask failed.\n", __FUNCTION__));
 		return -EINVAL;
 	}
@@ -2187,8 +2187,8 @@ int dhdpcie_init(struct pci_dev *pdev)
 
 #ifdef DHD_SET_PCIE_DMA_MASK_FOR_GS101
 		/* S.SLSI PCIe DMA engine cannot support 64 bit bus address. Hence, set 36 bit */
-		if (dma_set_mask(&pdev->dev, DMA_BIT_MASK(DHD_PCIE_DMA_MASK_FOR_GS101)) ||
-			dma_set_coherent_mask(&pdev->dev,
+		if (DHD_DMA_SET_MASK(pdev, DMA_BIT_MASK(DHD_PCIE_DMA_MASK_FOR_GS101)) ||
+			DHD_DMA_SET_COHERENT_MASK(pdev,
 				DMA_BIT_MASK(DHD_PCIE_DMA_MASK_FOR_GS101))) {
 			DHD_ERROR(("%s: DMA set %d bit mask failed.\n",
 				__FUNCTION__, DHD_PCIE_DMA_MASK_FOR_GS101));
@@ -2478,9 +2478,7 @@ void
 dhdpcie_enable_irq_loop(dhd_bus_t *bus)
 {
 	/* Enable IRQ in a loop till host_irq_disable_count becomes 0 */
-	int host_irq_disable_count = dhdpcie_irq_disabled(bus);
-	if (host_irq_disable_count < 0)
-		return;
+	uint host_irq_disable_count = dhdpcie_irq_disabled(bus);
 	while (host_irq_disable_count--) {
 		dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
 	}
@@ -2489,16 +2487,8 @@ dhdpcie_enable_irq_loop(dhd_bus_t *bus)
 int
 dhdpcie_irq_disabled(dhd_bus_t *bus)
 {
-	struct irq_data *data;
-	struct irq_desc *desc;
+	struct irq_desc *desc = (struct irq_desc *)dhd_irq_to_desc(bus->dev->irq);
 
-	data = irq_get_irq_data(bus->dev->irq);
-	if (!data) {
-		DHD_ERROR(("%s: failed to get irq data\n", __FUNCTION__));
-		return -EINVAL;
-	}
-
-	desc = irq_data_to_desc(data);
 	/* depth will be zero, if enabled */
 	return desc->depth;
 }
@@ -3332,9 +3322,6 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 			/* stop all interface network queue. */
 			dhd_bus_stop_queue(bus);
 			DHD_GENERAL_UNLOCK(dhd, flags);
-#ifdef WLAN_TRACKER
-			dhd_custom_notify(CUSTOM_NOTIFY_BUS_SUSPEND);
-#endif /* WLAN_TRACKER */
 			/* RPM suspend is failed, return FALSE then re-trying */
 			if (dhdpcie_set_suspend_resume(bus, TRUE)) {
 				DHD_ERROR(("%s: exit with wakelock \n", __FUNCTION__));

@@ -1,7 +1,7 @@
 /*
  * Broadcom proprietary types and constants relating to 802.11
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -31,6 +31,8 @@
 #ifndef _NET_ETHERNET_H_
 #include <ethernet.h>
 #endif
+
+#include <802.11n.h>
 
 /* This marks the start of a packed structure section. */
 #include <packed_section_start.h>

@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -62,8 +62,10 @@ dhd_ring_proc_open(struct inode *inode, struct file *file)
 {
 	int ret = BCME_ERROR;
 	if (inode) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
 		ret = single_open(file, 0, pde_data(inode));
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+		ret = single_open(file, 0, PDE_DATA(inode));
 #else
 		/* This feature is not supported for lower kernel versions */
 		ret = single_open(file, 0, NULL);
@@ -580,7 +582,7 @@ static const uint16 pwrstats_req_type[] = {
 
 extern uint64 dhdpcie_get_last_suspend_time(dhd_pub_t *dhdp);
 
-ssize_t
+static ssize_t
 show_pwrstats_path(struct dhd_info *dev, char *buf)
 {
 	int err = 0;
@@ -1998,8 +2000,6 @@ static struct dhd_attr dhd_attr_dhd_debug_data =
 __ATTR(dump_stateinfo, 0660, dhd_debug_dump_stateinfo, NULL);
 
 #ifdef WL_CFG80211
-#define __S(x) #x
-#define S(x) __S(x)
 #define SUBLOGLEVEL 20
 #define SUBLOGLEVELZ ((SUBLOGLEVEL) + (1))
 static const struct {
@@ -2070,7 +2070,7 @@ set_wl_debug_level(struct dhd_info *dhd, const char *buf, size_t count)
 		if (colon != NULL) {
 			*colon = ' ';
 		}
-		tokens = sscanf(token, "%"S(SUBLOGLEVEL)"s %u", sublog, &log_on);
+		tokens = sscanf(token, "%"BCM_STR(SUBLOGLEVEL)"s %u", sublog, &log_on);
 		if (colon != NULL)
 			*colon = ':';
 
@@ -2166,12 +2166,6 @@ static ssize_t
 trigger_dhd_dump_start_command(struct dhd_info *dhd, char *buf)
 {
 	ssize_t ret = 0;
-
-	if (dhd->pub.up == 0) {
-		DHD_ERROR(("%s: Not up\n", __FUNCTION__));
-		return -EINVAL;
-	}
-
 	DHD_ERROR(("%s: dump_start command delivered.\n", __FUNCTION__));
 	return ret;
 }
@@ -2284,7 +2278,9 @@ static struct attribute *default_file_attrs[] = {
 	&dhd_attr_tcm_test_mode.attr,
 	NULL
 };
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 ATTRIBUTE_GROUPS(default_file);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 
 /*
  * wifi kobject show function, the "attr" attribute specifices to which
@@ -2341,7 +2337,11 @@ static struct sysfs_ops dhd_sysfs_ops = {
 
 static struct kobj_type dhd_ktype = {
 	.sysfs_ops = &dhd_sysfs_ops,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 	.default_groups = default_file_groups,
+#else
+	.default_attrs = default_file_attrs,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 };
 
 /*
@@ -2742,7 +2742,9 @@ static struct attribute *debug_lb_attrs[] = {
 	&dhd_tx_cpu.attr,
 	NULL
 };
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 ATTRIBUTE_GROUPS(debug_lb);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 
 #define to_dhd_lb(k) container_of(k, struct dhd_info, dhd_lb_kobj)
 
@@ -2801,7 +2803,11 @@ static struct sysfs_ops dhd_sysfs_lb_ops = {
 
 static struct kobj_type dhd_lb_ktype = {
 	.sysfs_ops = &dhd_sysfs_lb_ops,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 	.default_groups = debug_lb_groups,
+#else
+	.default_attrs = debug_lb_attrs,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 };
 #endif /* DHD_LB */
 
@@ -2931,7 +2937,9 @@ static struct attribute *debug_dpc_bounds_attrs[] = {
 	&dhd_attr_ctrl_cpl_post_bound.attr,
 	NULL
 };
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 ATTRIBUTE_GROUPS(debug_dpc_bounds);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 
 #define to_dhd_dpc_bounds(k) container_of(k, struct dhd_info, dhd_dpc_bounds_kobj)
 
@@ -2990,7 +2998,11 @@ static struct sysfs_ops dhd_sysfs_dpc_bounds_ops = {
 
 static struct kobj_type dhd_dpc_bounds_ktype = {
 	.sysfs_ops = &dhd_sysfs_dpc_bounds_ops,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
 	.default_groups = debug_dpc_bounds_groups,
+#else
+	.default_attrs = debug_dpc_bounds_attrs,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) */
 };
 
 /*

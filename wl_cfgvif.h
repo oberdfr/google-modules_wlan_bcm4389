@@ -1,7 +1,7 @@
 /*
  * Wifi Virtual Interface implementaion
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -123,7 +123,11 @@ extern s32 wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg, wl_ifty
 #endif /* WL_IFACE_MGMT */
 
 extern s32 wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
 extern s32 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_iftype);
+#else
+extern s32 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) */
 
 int wl_cfg80211_set_he_mode(struct net_device *dev, struct bcm_cfg80211 *cfg,
 		s32 bssidx, u32 interface_type, bool set);
@@ -186,8 +190,11 @@ extern s32 wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_devi
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)) || defined(WL_COMPAT_WIRELESS)
 extern s32 wl_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 		struct cfg80211_ap_settings *info);
-extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev,
-			       unsigned int link_id);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
+extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev, unsigned int link_id);
+#else
+extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 19, 0) || WL_MLO_BKPORT */
 extern s32 wl_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
 	struct cfg80211_beacon_data *info);
 #else
@@ -261,4 +268,8 @@ chanspec_t wl_cfg80211_get_ap_bw_limited_chspec(struct bcm_cfg80211 *cfg,
 	uint32 band, chanspec_t candidate);
 int wl_cfg80211_set_softap_bw(struct bcm_cfg80211 *cfg, uint32 band, uint32 limit);
 #endif /* LIMIT_AP_BW */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+void
+wl_cfgvif_delayed_remove_iface_work(struct work_struct *work);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
 #endif /* _wl_cfgvif_h_ */

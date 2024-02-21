@@ -3,7 +3,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -229,7 +229,7 @@ struct msgbuf_ring; /* ring context for common and flow rings */
 #define PCIE_D2H_SYNC_WAIT_TRIES    (512U)
 #define PCIE_D2H_SYNC_NUM_OF_STEPS  (5U)
 #define PCIE_D2H_SYNC_DELAY         (100UL)	/* in terms of usecs */
-#endif
+#endif /* PCIE_D2H_SYNC_RETRY_CNT_ONE */
 
 /**
  * Custom callback attached based upon D2H DMA Sync mode advertized by dongle.
@@ -5331,7 +5331,7 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 		dhd->wlc_ver_minor = ((wl_wlc_version_t*)buf)->wlc_ver_minor;
 	}
 
-	DHD_ERROR(("\nwlc_ver_major %d, wlc_ver_minor %d",
+	DHD_ERROR(("\nwlc_ver_major %d, wlc_ver_minor %d\n",
 		dhd->wlc_ver_major, dhd->wlc_ver_minor));
 
 #ifdef DHD_FW_COREDUMP
@@ -5435,6 +5435,7 @@ BCMFASTPATH(dhd_prot_print_metadata)(dhd_pub_t *dhd, void *ptr, int len)
 	uint8 tlv_t;
 	uint8 tlv_l;
 	uint8 *tlv_v = (uint8 *)ptr;
+	int ret = 0;
 
 	if (len <= BCMPCIE_D2H_METADATA_HDRLEN)
 		return;
@@ -5456,13 +5457,18 @@ BCMFASTPATH(dhd_prot_print_metadata)(dhd_pub_t *dhd, void *ptr, int len)
 		switch (tlv_t) {
 		case WLFC_CTL_TYPE_TXSTATUS: {
 			uint32 txs;
-			memcpy(&txs, tlv_v, sizeof(uint32));
+			(void)memcpy_s(&txs, sizeof(txs), tlv_v, sizeof(uint32));
 			if (tlv_l < (sizeof(wl_txstatus_additional_info_t) + sizeof(uint32))) {
 				DHD_CONS_ONLY(("METADATA TX_STATUS: %08x\n", txs));
 			} else {
 				wl_txstatus_additional_info_t tx_add_info;
-				memcpy(&tx_add_info, tlv_v + sizeof(uint32),
-					sizeof(wl_txstatus_additional_info_t));
+				ret = memcpy_s(&tx_add_info, sizeof(wl_txstatus_additional_info_t),
+					tlv_v + sizeof(uint32), tlv_l);
+				if (ret) {
+					DHD_ERROR(("tx status memcpy failed:%d, destsz:%lu, n:%d\n",
+						ret, sizeof(wl_txstatus_additional_info_t), tlv_l));
+					break;
+				}
 				DHD_CONS_ONLY(("METADATA TX_STATUS: %08x"
 					" WLFCTS[%04x | %08x - %08x - %08x]"
 					" rate = %08x tries = %d - %d\n", txs,
@@ -5496,10 +5502,16 @@ BCMFASTPATH(dhd_prot_print_metadata)(dhd_pub_t *dhd, void *ptr, int len)
 				uint32 bus_time;
 				uint32 wlan_time;
 			} rx_tmstamp;
-			memcpy(&rx_tmstamp, tlv_v, sizeof(rx_tmstamp));
+			ret = memcpy_s(&rx_tmstamp, sizeof(rx_tmstamp), tlv_v, tlv_l);
+			if (ret) {
+				DHD_ERROR(("rx tmstamp memcpy failed:%d, destsz:%lu, n:%d\n",
+					ret, sizeof(rx_tmstamp), tlv_l));
+				break;
+			}
 			DHD_CONS_ONLY(("METADATA RX TIMESTMAP: WLFCTS[%08x - %08x] rate = %08x\n",
 				rx_tmstamp.wlan_time, rx_tmstamp.bus_time, rx_tmstamp.rspec));
-			} break;
+			}
+			break;
 
 		case WLFC_CTL_TYPE_TRANS_ID:
 			bcm_print_bytes("METADATA TRANS_ID", tlv_v, tlv_l);
@@ -7332,8 +7344,9 @@ BCMFASTPATH(dhd_prot_process_msgbuf_txcpl)(dhd_pub_t *dhd, int ringtype, uint32 
 int
 BCMFASTPATH(dhd_prot_process_trapbuf)(dhd_pub_t *dhd)
 {
-	uint32 data;
+	uint32 data, copylen;
 	dhd_dma_buf_t *trap_addr = &dhd->prot->fw_trap_buf;
+	int ret = 0;
 
 	/* Interrupts can come in before this struct
 	 *  has been initialized.
@@ -7367,8 +7380,16 @@ BCMFASTPATH(dhd_prot_process_trapbuf)(dhd_pub_t *dhd)
 			if (dhd->extended_trap_data) {
 				OSL_CACHE_INV((void *)trap_addr->va,
 				       BCMPCIE_EXT_TRAP_DATA_MAXLEN);
-				memcpy(dhd->extended_trap_data, (uint32 *)trap_addr->va,
-				       BCMPCIE_EXT_TRAP_DATA_MAXLEN);
+				copylen = MIN(trap_addr->len, BCMPCIE_EXT_TRAP_DATA_MAXLEN);
+				ret = memcpy_s(dhd->extended_trap_data,
+					BCMPCIE_EXT_TRAP_DATA_MAXLEN,
+					(uint32 *)trap_addr->va, copylen);
+				if (ret) {
+					DHD_ERROR(("trap data memcpy failed:%d, destsz:%d, n:%u\n",
+						ret, BCMPCIE_EXT_TRAP_DATA_MAXLEN,
+						copylen));
+					return 0;
+				}
 			}
 			if (dhd->db7_trap.fw_db7w_trap_inprogress == FALSE) {
 				DHD_ERROR(("Extended trap data available\n"));
@@ -8577,8 +8598,16 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 			dhd->prot->hmaptest_tx_active = HMAPTEST_D11_TX_INACTIVE;
 			dhd->prot->hmaptest.in_progress = FALSE;
 		} else {
+			int ret = 0;
 			/* copy pktdata to our va */
-			memcpy(dhd->prot->hmap_tx_buf_va, PKTDATA(dhd->osh, PKTBUF), pktlen);
+			ret = memcpy_s(dhd->prot->hmap_tx_buf_va, dhd->prot->hmap_tx_buf_len,
+				PKTDATA(dhd->osh, PKTBUF), pktlen);
+			if (ret) {
+				DHD_ERROR(("memcpy hmap_tx_buf_va failed:%d, destsz:%d, n:%d\n",
+					ret, dhd->prot->hmap_tx_buf_len, pktlen));
+				ASSERT(0);
+				goto err_rollback_idx;
+			}
 			pa = DMA_MAP(dhd->osh, dhd->prot->hmap_tx_buf_va,
 				dhd->prot->hmap_tx_buf_len, DMA_TX, PKTBUF, 0);
 
@@ -10397,7 +10426,11 @@ int dhd_edl_ring_hdr_write(dhd_pub_t *dhd, msgbuf_ring_t *ring, void *file, cons
 
 	for (; nitems < D2HRING_EDL_MAX_ITEM; nitems++, rd++) {
 		msg_addr = (uint8 *)ring->dma_buf.va + (rd * ring->item_len);
-		memcpy(ptr, (char *)msg_addr, D2HRING_EDL_HDR_SIZE);
+		ret = memcpy_s(ptr, D2HRING_EDL_HDR_SIZE, (char *)msg_addr, ring->item_len);
+		if (ret) {
+			DHD_ERROR(("D2HRING_EDL_HDR(%d) memcpy failed:%d, destsz:%d, n:%d\n",
+				rd, ret, D2HRING_EDL_HDR_SIZE, ring->item_len));
+		}
 		ptr += D2HRING_EDL_HDR_SIZE;
 	}
 	if (file) {
@@ -10686,6 +10719,7 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 	dhd_prot_t *prot = dhd->prot;
 	ioctl_req_msg_t *ioct_rqst;
 	void * ioct_buf;	/* For ioctl payload */
+	uint32	ioct_buf_len;
 	uint16  rqstlen, resplen;
 	unsigned long flags;
 	uint16 alloced = 0;
@@ -10776,11 +10810,19 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 	ioct_rqst->host_input_buf_addr.low = htol32(PHYSADDRLO(prot->ioctbuf.pa));
 	/* copy ioct payload */
 	ioct_buf = (void *) prot->ioctbuf.va;
+	ioct_buf_len = prot->ioctbuf.len;
 
 	prot->ioctl_fillup_time = OSL_LOCALTIME_NS();
 
-	if (buf)
-		memcpy(ioct_buf, buf, len);
+	if (buf) {
+		int ret = 0;
+		ret = memcpy_s(ioct_buf, ioct_buf_len, buf, len);
+		if (ret) {
+			DHD_ERROR(("ioct_buf memcopy failed:%d, destsz:%d, n:%d\n",
+				ret, ioct_buf_len, len));
+			return BCME_ERROR;
+		}
+	}
 
 	OSL_CACHE_FLUSH((void *) prot->ioctbuf.va, len);
 
@@ -12316,6 +12358,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	uint16 alloced = 0;
 	msgbuf_ring_t *ctrl_ring = &prot->h2dring_ctrl_subn;
 	uint16 max_flowrings = dhd->bus->max_tx_flowrings;
+	int ret = 0;
 
 	/* Fetch a pre-initialized msgbuf_ring from the flowring pool */
 	flow_ring = dhd_prot_flowrings_pool_fetch(dhd, flow_ring_node->flowid);
@@ -12360,8 +12403,20 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	/* Update flow create message */
 	flow_create_rqst->tid = flow_ring_node->flow_info.tid;
 	flow_create_rqst->flow_ring_id = htol16((uint16)flow_ring_node->flowid);
-	memcpy(flow_create_rqst->sa, flow_ring_node->flow_info.sa, sizeof(flow_create_rqst->sa));
-	memcpy(flow_create_rqst->da, flow_ring_node->flow_info.da, sizeof(flow_create_rqst->da));
+	ret = memcpy_s(flow_create_rqst->sa, sizeof(flow_create_rqst->sa),
+		flow_ring_node->flow_info.sa, sizeof(flow_ring_node->flow_info.sa));
+	if (ret) {
+		DHD_ERROR(("flow message sa memcpy failed:%d, destsz:%lu, n:%lu\n",
+			ret, sizeof(flow_create_rqst->sa), sizeof(flow_ring_node->flow_info.sa)));
+		return BCME_ERROR;
+	}
+	ret = memcpy_s(flow_create_rqst->da, sizeof(flow_create_rqst->da),
+		flow_ring_node->flow_info.da, sizeof(flow_ring_node->flow_info.da));
+	if (ret) {
+		DHD_ERROR(("flow message da memcpy failed:%d, destsz:%lu, n:%lu\n",
+			ret, sizeof(flow_create_rqst->da), sizeof(flow_ring_node->flow_info.da)));
+		return BCME_ERROR;
+	}
 	/* CAUTION: ring::base_addr already in Little Endian */
 	flow_create_rqst->flow_ring_ptr.low_addr = flow_ring->base_addr.low_addr;
 	flow_create_rqst->flow_ring_ptr.high_addr = flow_ring->base_addr.high_addr;
@@ -13018,6 +13073,7 @@ copy_ext_trap_sig(dhd_pub_t *dhd, trap_t *tr)
 	uint32 *ext_data = dhd->extended_trap_data;
 	hnd_ext_trap_hdr_t *hdr;
 	const bcm_tlv_t *tlv;
+	int ret = 0;
 
 	if (ext_data == NULL) {
 		return;
@@ -13030,7 +13086,12 @@ copy_ext_trap_sig(dhd_pub_t *dhd, trap_t *tr)
 
 	tlv = bcm_parse_tlvs(hdr->data, hdr->len, TAG_TRAP_SIGNATURE);
 	if (tlv) {
-		memcpy(tr, &tlv->data, sizeof(struct _trap_struct));
+		ret = memcpy_s(tr, sizeof(struct _trap_struct), &tlv->data, tlv->len);
+		if (ret) {
+			DHD_ERROR(("tlv memcpy failed:%d, destsz:%lu, n:%d\n",
+				ret, sizeof(struct _trap_struct), tlv->len));
+			return;
+		}
 	}
 }
 #define TRAP_T_NAME_OFFSET(var) {#var, OFFSETOF(trap_t, var)}
@@ -14750,6 +14811,7 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	uint16 alloced = 0;
 	uchar *ts_tlv_buf;
 	msgbuf_ring_t *ctrl_ring = &prot->h2dring_ctrl_subn;
+	int ret;
 
 	if ((tlvs == NULL) || (tlv_len == 0)) {
 		DHD_ERROR(("%s: argument error tlv: %p, tlv_len %d\n",
@@ -14804,7 +14866,12 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	/* copy ioct payload */
 	ts_tlv_buf = (void *) prot->hostts_req_buf.va;
 	prot->hostts_req_buf_inuse = TRUE;
-	memcpy(ts_tlv_buf, tlvs, tlv_len);
+	ret = memcpy_s(ts_tlv_buf, prot->hostts_req_buf.len, tlvs, tlv_len);
+	if (ret) {
+		DHD_ERROR(("copy ioct payload failed:%d, destsz:%d, n:%d\n",
+			ret, prot->hostts_req_buf.len, tlv_len));
+		return BCME_ERROR;
+	}
 
 	OSL_CACHE_FLUSH((void *) prot->hostts_req_buf.va, tlv_len);
 
@@ -15030,6 +15097,7 @@ dhd_prot_get_snapshot(dhd_pub_t *dhdp, uint8 snapshot_type, uint32 offset,
 	uint8 *buf = prot->snapshot_upload_buf.va;
 	uint8 *buf_end = buf + prot->snapshot_upload_len;
 	uint32 copy_size;
+	int ret = 0;
 
 	/* snapshot type must match */
 	if (prot->snapshot_type != snapshot_type) {
@@ -15048,7 +15116,12 @@ dhd_prot_get_snapshot(dhd_pub_t *dhdp, uint8 snapshot_type, uint32 offset,
 
 	/* copy dst buf size or remaining size */
 	copy_size = MIN(dst_buf_size, buf_end - (buf + offset));
-	memcpy(dst_buf, buf + offset, copy_size);
+	ret = memcpy_s(dst_buf, dst_buf_size, buf + offset, copy_size);
+	if (ret) {
+		DHD_ERROR(("buf memcpy failed:%d, destsz:%d, n:%d\n",
+			ret, dst_buf_size, copy_size));
+		return BCME_ERROR;
+	}
 
 	/* return size and is_more */
 	*dst_size = copy_size;

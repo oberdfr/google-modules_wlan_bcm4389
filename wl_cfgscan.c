@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver scan related code
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -464,6 +464,7 @@ s32 wl_inform_single_bss(struct bcm_cfg80211 *cfg, wl_bss_info_v109_t *bi, bool 
 	if (unlikely(!cbss)) {
 		WL_ERR(("cfg80211_inform_bss_frame error bssid " MACDBG " channel %d \n",
 			MAC2STRDBG((u8*)(&bi->BSSID)), notif_bss_info->channel));
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
 		WL_ERR(("SSID : \"%s\", rssi %d, fc : 0x04%x, "
 			"capability : 0x04%x, beacon_int : 0x04%x, "
 			"mgmt_type %d, frame_len %d, freq %d, "
@@ -472,6 +473,7 @@ s32 wl_inform_single_bss(struct bcm_cfg80211 *cfg, wl_bss_info_v109_t *bi, bool 
 			mgmt->u.probe_resp.capab_info, mgmt->u.probe_resp.beacon_int,
 			mgmt_type, notif_bss_info->frame_len, freq,
 			channel->band, channel->center_freq, channel->freq_offset));
+#endif
 		err = -EINVAL;
 		goto out_err;
 	}
@@ -4060,8 +4062,8 @@ wl_cfgscan_sched_scan_stop_work(struct work_struct *work)
 		/* Indicate sched scan stopped so that user space
 		 * can do a full scan incase found match is empty.
 		 */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
-		cfg80211_sched_scan_stopped(wiphy, cfg->sched_scan_req->reqid);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+		cfg80211_sched_scan_stopped_locked(wiphy, cfg->sched_scan_req->reqid);
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 		cfg80211_sched_scan_stopped_rtnl(wiphy, cfg->sched_scan_req->reqid);
 #else
@@ -6496,51 +6498,6 @@ done2:
 	return ret;
 }
 
-#ifdef DHD_ACS_CHECK_SCC_2G_ACTIVE_CH
-bool wl_check_active_2g_chan(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
-	chanspec_t sta_chanspec)
-{
-	struct net_device *dev = bcmcfg_to_prmry_ndev(cfg);
-	bool scc = FALSE;
-	s32 ret = BCME_OK;
-	uint bitmap = 0;
-	u8 ioctl_buf[WLC_IOCTL_SMLEN];
-
-	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
-	ret = wldev_iovar_getbuf(dev, "per_chan_info",
-			(void *)&sta_chanspec, sizeof(sta_chanspec),
-			ioctl_buf, WLC_IOCTL_SMLEN, NULL);
-	if (ret != BCME_OK) {
-		WL_ERR(("Failed to get per_chan_info chspec:0x%x, error:%d\n",
-				sta_chanspec, ret));
-		goto exit;
-	}
-
-	bitmap = dtoh32(*(uint *)ioctl_buf);
-	if (bitmap & (WL_CHAN_PASSIVE | WL_CHAN_RESTRICTED | WL_CHAN_CLM_RESTRICTED)) {
-		WL_INFORM_MEM(("chspec is not active chanspec:0x%x bitmap:%d\n",
-				sta_chanspec, bitmap));
-		goto exit;
-	}
-
-#ifdef WL_CELLULAR_CHAN_AVOID
-	if (wl_cellavoid_mandatory_isset(cfg->cellavoid_info, NL80211_IFTYPE_AP) &&
-		!wl_cellavoid_is_safe(cfg->cellavoid_info, sta_chanspec)) {
-		WL_INFORM_MEM((
-			"Not allow unsafe channel and mandatory chspec:0x%x\n",
-			sta_chanspec));
-		goto exit;
-	}
-#endif /* WL_CELLULAR_CHAN_AVOID */
-
-	scc = TRUE;
-
-exit:
-	WL_INFORM_MEM(("STA chanspec:0x%x per_chan_info:0x%x scc:%d\n", sta_chanspec, bitmap, scc));
-	return scc;
-}
-#endif /* DHD_ACS_CHECK_SCC_2G_ACTIVE_CH */
-
 #define MAX_ACS_FREQS	256u
 static int
 wl_convert_freqlist_to_chspeclist(struct bcm_cfg80211 *cfg,
@@ -7057,9 +7014,8 @@ wl_acs_check_scc(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
 			scc = wl_cellavoid_operation_allowed(cfg->cellavoid_info,
 				sta_chanspec, NL80211_IFTYPE_AP);
 			if (scc == FALSE) {
-				WL_INFORM_MEM((
-				"Not allow unsafe channel and mandatory chspec:0x%x\n",
-				sta_chanspec));
+				WL_INFORM_MEM(("Not allow unsafe channel and"
+				" mandatory chspec:0x%x\n", sta_chanspec));
 			}
 		}
 #endif /* WL_CELLULAR_CHAN_AVOID */
@@ -7157,7 +7113,7 @@ wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *para
 #endif /* WL_UNII4_CHAN */
 				FALSE) {
 				/*
-				 * If STA is in DFS/UNII4 channel,
+				 * If STA is in DFS/Restricted/UNII4 channel,
 				 * check for 2G availability in ACS list
 				 */
 				if (!(parameter->freq_bands & WLC_BAND_2G)) {

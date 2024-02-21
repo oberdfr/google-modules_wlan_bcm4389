@@ -1,7 +1,7 @@
 /*
  * OS Abstraction Layer
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -511,4 +511,22 @@ do { \
 #else
 #define ASSERT_NULL(expr) // do nothing
 #endif /* ENABLE_ASSERT_NULL */
+
+#if defined(DONGLEBUILD) && !defined(BCM_MEM_PERSIST_ENABLE)
+#ifdef MALLOC_PERSIST
+#undef MALLOC_PERSIST
+#endif /* MALLOC_PERSIST */
+#define MALLOC_PERSIST MALLOC
+
+#ifdef MALLOCZ_PERSIST
+#undef MALLOCZ_PERSIST
+#endif /* MALLOCZ_PERSIST */
+#define MALLOCZ_PERSIST MALLOCZ
+
+#ifdef MFREE_PERSIST
+#undef MFREE_PERSIST
+#endif /* MFREE_PERSIST */
+#define MFREE_PERSIST MFREE
+#endif /* DONGLEBUILD && !BCM_MEM_PERSIST_ENABLE */
+
 #endif	/* _osl_h_ */

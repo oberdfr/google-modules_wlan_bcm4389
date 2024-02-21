@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2271,7 +2271,7 @@ extern void dhd_os_oob_irq_wake_unlock(dhd_pub_t *pub);
  */
 #define DHD_MONITOR_TIMEOUT_MS	1000
 #define DHD_PACKET_TIMEOUT_MS	100
-#define DHD_HANDSHAKE_TIMEOUT_MS       1000
+#define DHD_HANDSHAKE_TIMEOUT_MS	1000
 #define DHD_EVENT_TIMEOUT_MS	1500
 #define SCAN_WAKE_LOCK_TIMEOUT	10000
 #define MAX_TX_TIMEOUT			100
@@ -4537,8 +4537,10 @@ int dhd_os_wake_lock_rx_timeout_enable(dhd_pub_t *pub, int val);
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0))
 #define DHD_VFS_UNLINK(dir, b, c) vfs_unlink(DHD_VFS_INODE(dir), b)
-#else
+#elif (LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0))
 #define DHD_VFS_UNLINK(dir, b, c) vfs_unlink(DHD_VFS_INODE(dir), b, c)
+#else
+#define DHD_VFS_UNLINK(dir, b, c) vfs_unlink(&init_user_ns, DHD_VFS_INODE(dir), b, c)
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) */
 static INLINE struct file *dhd_filp_open(const char *filename, int flags, int mode)
 {
@@ -4575,9 +4577,25 @@ static INLINE int dhd_vfs_fsync(struct file *filep, int datasync)
 	return vfs_fsync(filep, datasync);
 }
 
-static INLINE int dhd_vfs_stat(char *buf, struct kstat *stat)
+static INLINE int dhd_vfs_stat(char *filepath, struct kstat *stat)
 {
-	return vfs_stat(buf, stat);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+	struct path path;
+	int error;
+	error = kern_path(filepath, LOOKUP_FOLLOW, &path);
+	if (error) {
+		return error;
+	}
+	error = vfs_getattr(&path, stat, STATX_TYPE, AT_STATX_SYNC_AS_STAT);
+	path_put(&path);
+	if (error) {
+		return error;
+	}
+
+	return error;
+#else
+	return vfs_stat(filepath, stat);
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0) */
 }
 
 static INLINE int dhd_kern_path(char *name, int flags, struct path *file_path)
@@ -4633,6 +4651,7 @@ extern uint32 dhd_get_concurrent_capabilites(dhd_pub_t *dhd);
 int dhd_config_rts_in_suspend(dhd_pub_t *dhdp, bool suspend);
 #endif /* DHD_CUSTOM_CONFIG_RTS_IN_SUSPEND */
 
+extern void *dhd_irq_to_desc(unsigned int irq);
 extern void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock);
 extern int dhd_register_net(struct net_device *net, bool need_rtnl_lock);
 

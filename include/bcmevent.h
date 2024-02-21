@@ -3,7 +3,7 @@
  *
  * Dependencies: bcmeth.h
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -315,7 +315,8 @@ typedef union bcm_event_msg_u {
 #define WLC_E_MLO_LINK_INFO		203	/* 11be MLO link information */
 #define WLC_E_C2C			204	/* Client to client (C2C) for 6GHz TX */
 #define WLC_E_BCN_TSF			205	/* Report Beacon TSF */
-#define WLC_E_LAST			206	/* highest val + 1 for range checking */
+#define WLC_E_OWE_INFO                  206     /* OWE Information */
+#define WLC_E_LAST			207	/* highest val + 1 for range checking */
 
 /* define an API for getting the string name of an event */
 extern const char *bcmevent_get_name(uint event_type);
@@ -367,7 +368,10 @@ typedef struct wlc_roam_prep_event {
 	uint16 version;		/* version */
 	uint16 length;		/* total length */
 	int16 rssi;		/* target bss rssi */
-	int8 pad[2];		/* padding */
+	union {
+		int8 pad[2];            /* padding */
+		chanspec_t chanspec;	/**< Channel num, bw, ctrl_sb and band */
+	};
 	uint8 xtlvs[];		/* optional xtlvs */
 } wlc_roam_prep_event_t;
 
@@ -565,6 +569,9 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_PRUNE_MESH_CFG_MISMATCH	34u	/* Prune due to Mesh AP config mismatch */
 #define WLC_E_PRUNE_6G_RNR_INVALID_CHAN 35u	/* Prune RNR due to invalid channel reporting */
 #define WLC_E_PRUNE_BY_OWE		36u	/* Pruned by OWE */
+#define WLC_E_PRUNE_AP_RESTRICT_POLICY		37u	/* Prune by AP restrict policy */
+#define WLC_E_PRUNE_SAE_PWE_PWDID		38u	/* Prune by SAE PWE/PWD ID restriction */
+#define WLC_E_PRUNE_SAE_TRANSITION_DISABLE	39u	/* Prune by  SAE transition disable */
 
 /* WPA failure reason codes carried in the WLC_E_PSK_SUP event */
 #define WLC_E_SUP_OTHER			0	/* Other reason */

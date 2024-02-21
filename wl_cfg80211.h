@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -82,6 +82,9 @@ struct wl_ibss;
 
 /* Enable by default */
 #define WL_WTC
+
+//Blazar branch limited to legacy CROSS AKM
+#define LEGACY_CROSS_AKM
 
 #ifndef WL_CLIENT_SAE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && !defined(WL_SAE))
@@ -799,6 +802,8 @@ do {									\
 #define WL_AKM_SUITE_SHA256_PSK 0x000FAC06
 
 #define WLAN_AKM_SUITE_SAE_SHA256		0x000FAC08
+#define WLAN_AKM_SUITE_SAE_EXT			0x000FAC24
+#define MAX_NUM_MULTI_AKM_SUITES		4u
 
 #ifndef WLAN_AKM_SUITE_FILS_SHA256
 #define WLAN_AKM_SUITE_FILS_SHA256		0x000FAC0E
@@ -818,6 +823,8 @@ do {									\
 #ifndef WLAN_AKM_SUITE_DPP
 #define WLAN_AKM_SUITE_DPP                0X506F9A02
 #endif /* WLAN_AKM_SUITE_DPP */
+
+#define CRYPTO_PARAMS_PN_IV_LEN 6
 
 /*
  * BRCM local.
@@ -942,9 +949,7 @@ typedef wifi_p2psd_gas_pub_act_frame_t wl_dpp_gas_af_t;
 #define DEFAULT_FULL_ROAM_PRD 0x78u
 #define DEFAULT_ASSOC_RETRY 0x3u
 #define DEFAULT_WNM_CONF 0x505u
-#ifndef DEFAULT_RECREATE_BI_TIMEOUT
-#define DEFAULT_RECREATE_BI_TIMEOUT 20u
-#endif
+#define DEFAULT_RECREATE_BI_TIMEOUT 40u
 
 struct preinit_iov;
 typedef int (*wl_iov_fn) (struct bcm_cfg80211 *cfg, struct net_device *dev, struct preinit_iov *v);
@@ -1809,7 +1814,7 @@ typedef enum {
 #define SAR_CONFIG_SCENARIO_COUNT	100
 typedef struct wl_sar_config_info {
 	int8 scenario;
-	uint8 sar_tx_power_val;
+	int8 sar_tx_power_val;
 	int8 airplane_mode;
 } wl_sar_config_info_t;
 #endif /* WL_SAR_TX_POWER && WL_SAR_TX_POWER_CONFIG */
@@ -1843,6 +1848,7 @@ typedef struct wlcfg_assoc_info {
 	s32 bssidx;
 	u32 chan_cnt;
 	chanspec_t chanspecs[MAX_ROAM_CHANNEL];
+	u32 allowed_key_mgmts;  /* Keep multi akms except the best akm current trying */
 	bool auto_wpa_enabled;	/* auto_wpa enabled for multi AKM */
 	bool seamless_psk;	/* Multi-AKMs needing seamless PSK */
 } wlcfg_assoc_info_t;
@@ -1933,6 +1939,13 @@ typedef struct scan_stat_cache_cores {
 	uint32 on_time_pno_scan_main;
 } scan_stat_cache_cores_t;
 #endif /* LINKSTAT_EXT_SUPPORT */
+
+typedef enum {
+	HAL_IDLE		= 0,
+	HAL_START_IN_PROG	= 1,
+	HAL_STOP_IN_PROG	= 2,
+	HAL_STARTED		= 3
+} hal_state;
 
 /* private data of cfg80211 interface */
 struct bcm_cfg80211 {
@@ -2152,7 +2165,7 @@ struct bcm_cfg80211 {
 #endif /* WL_BCNRECV */
 	struct net_device *static_ndev;
 	uint8 static_ndev_state;
-	bool hal_started;
+	uint8 hal_state;
 	wl_wlc_version_t wlc_ver;
 	u8 scan_params_ver;
 #ifdef SUPPORT_AP_BWCTRL
@@ -2243,6 +2256,9 @@ struct bcm_cfg80211 {
 	uint32 ap_bw_limit;
 	uint32 ap_bw_chspec;
 	bool frameburst_disabled;
+	struct delayed_work	remove_iface_work;
+	/* to track the wiphy lock held context for deleting iface */
+	bool wiphy_lock_held;
 };
 
 /* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
@@ -3131,6 +3147,22 @@ wl_iftype_to_str(int wl_iftype)
 #define WL_SUPP_PMK_LEN				32u
 #endif /* LINUX_VERSION_CODE >= 4, 13, 0 && BCMSUP_4WAY_HANDSHAKE */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+#define WDEV_SSID(wdev)	wdev->u.client.ssid
+#define WDEV_SSID_LEN(wdev)	wdev->u.client.ssid_len
+#else
+#define WDEV_SSID(wdev)	wdev->ssid
+#define WDEV_SSID_LEN(wdev)	wdev->ssid_len
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || WL_MLO_BKPORT */
+
+#ifdef WL_MLO_BKPORT_NEW_PORT_AUTH
+#define CFG80211_PORT_AUTHORIZED(ndev, bssid, tdmode, tdlen, kflags) \
+	cfg80211_port_authorized(ndev, bssid, tdmode, tdlen, kflags)
+#else
+#define CFG80211_PORT_AUTHORIZED(ndev, bssid, tdmode, tdlen, kflags) \
+	cfg80211_port_authorized(ndev, bssid, kflags)
+#endif /* WL_MLO_BKPORT_NEW_PORT_AUTH */
+
 extern s32 wl_cfg80211_attach(struct net_device *ndev, void *context);
 extern void wl_cfg80211_detach(struct bcm_cfg80211 *cfg);
 
@@ -3257,7 +3289,7 @@ extern struct bcm_cfg80211 *wl_get_cfg(struct net_device *ndev);
 extern s32 wl_cfg80211_set_if_band(struct net_device *ndev, int band);
 extern s32 wl_cfg80211_set_country_code(struct net_device *dev, char *country_code,
         bool notify, bool user_enforced, int revinfo);
-extern bool wl_cfg80211_is_hal_started(struct bcm_cfg80211 *cfg);
+extern uint8 wl_cfg80211_is_hal_started(struct bcm_cfg80211 *cfg);
 #ifdef WL_WIPSEVT
 extern int wl_cfg80211_wips_event(uint16 misdeauth, char* bssid);
 extern int wl_cfg80211_wips_event_ext(wl_wips_event_info_t *wips_event);

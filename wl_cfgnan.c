@@ -1,7 +1,7 @@
 /*
  * Neighbor Awareness Networking
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2001,7 +2001,7 @@ wl_cfgnan_set_if_addr(struct bcm_cfg80211 *cfg)
 	}
 #ifdef WL_NMI_IF
 	/* copy new nmi addr to dedicated NMI interface */
-	__dev_addr_set(cfg->nmi_ndev, if_addr.octet, ETHER_ADDR_LEN);
+	eacopy(if_addr.octet, cfg->nmi_ndev->dev_addr);
 #endif /* WL_NMI_IF */
 	return ret;
 fail:
@@ -3109,12 +3109,14 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	NAN_MUTEX_LOCK();
 
 #ifdef WL_IFACE_MGMT
+	cfg->wiphy_lock_held = true;
 	if ((ret = wl_cfg80211_handle_if_role_conflict(cfg, WL_IF_TYPE_NAN_NMI)) != BCME_OK) {
 		WL_ERR(("Conflicting iface is present, cant support nan\n"));
 		NAN_MUTEX_UNLOCK();
 		mutex_unlock(&cfg->if_sync);
 		goto fail;
 	}
+	cfg->wiphy_lock_held = false;
 #endif /* WL_IFACE_MGMT */
 
 	/* disable TDLS on NAN init  */
@@ -10146,13 +10148,13 @@ wl_cfgnan_register_nmi_ndev(struct bcm_cfg80211 *cfg)
 	ndev->netdev_ops = &wl_cfgnan_nmi_if_ops;
 
 	/* Register with a dummy MAC addr */
-	__dev_addr_set(ndev, temp_addr, ETHER_ADDR_LEN);
+	eacopy(temp_addr, ndev->dev_addr);
 
 	ndev->ieee80211_ptr = wdev;
 	wdev->netdev = ndev;
 	wdev->wiphy = bcmcfg_to_wiphy(cfg);
 	wdev->iftype = NL80211_IFTYPE_STATION;
- 
+
 	ret = dhd_register_net(ndev, true);
 	if (ret) {
 		WL_ERR((" NMI register_netdevice failed (%d)\n", ret));
@@ -10189,7 +10191,6 @@ wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 
 	dhd_unregister_net(cfg->nmi_ndev, true);
 	free_netdev(cfg->nmi_ndev);
-
 	cfg->nmi_ndev = NULL;
 
 free_wdev:
@@ -10405,5 +10406,4 @@ void wl_cfgnan_inst_chan_support(struct bcm_cfg80211 *cfg,
 	return;
 }
 #endif /* WL_NAN_INSTANT_MODE */
-#line 10447
 #endif /* WL_NAN */

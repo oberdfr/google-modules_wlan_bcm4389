@@ -4,7 +4,7 @@
  * This file describes the payloads of event log entries that are data buffers
  * rather than formatted string entries. The contents are generally XTLVs.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -573,6 +573,23 @@ typedef struct wl_chansw_event_log_record_v2 {
 	uint32 core;
 	int32 phychanswtime;		/* channel switch time */
 } wl_chansw_event_log_record_v2_t;
+
+/* Beacon Report structure
+ * Host may map the following structure to the RRM beacon report event log record
+ */
+#define WL_RRM_BCN_RPT_RECORD_V1	1u
+typedef struct wl_rrm_bcn_rpt_record_v1 {
+	uint32 ver;			/* structure version */
+	uint32 index;			/* Index of AP inclided in the report */
+	uint32 num_aps;			/* total number of APs reported */
+	uint32 measure_mode;		/* Beacon measurement mode */
+	uint32 bssid_lo;		/* BSSID[3:0] */
+	uint32 bssid_hi;		/* BSSID[5:4] */
+	uint32 ssid_match;		/* 0: not-match 1:match */
+	uint32 chanspec;
+	int32  rssi;
+	int32  snr;
+} wl_rrm_bcn_rpt_record_v1_t;
 
 /* Sub-block type for EVENT_LOG_TAG_AMPDU_DUMP */
 typedef enum {
@@ -1827,6 +1844,24 @@ typedef struct phy_periodic_counters_v255 {
 
 	uint16	nav_cntr_l;		/* The state of the NAV */
 	uint16	nav_cntr_h;
+
+	uint32	tbtt;			/* Per-interface stats report tbtt count */
+	uint32  p2ptbtt;		/* MCNX TBTT */
+	uint32  p2ptbttmiss;		/* TBTT coming when the radio is on an off channel */
+	uint32  noise_iqest_to;		/* Count of IQ Est timeout during noise measurement */
+	uint16  missbcn_dbg;		/* Number of beacon missed to receive */
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint16	debug_06;
+	uint16	debug_07;
+	uint16	debug_08;
+	uint16	debug_09;
+	uint16	debug_10;
+
+	uint8	sc_dccal_incc_cnt;	/* scan dccal counter */
+	uint8	sc_rxiqcal_skip_cnt;	/* scan rxiqcal counter */
+	uint8	sc_noisecal_incc_cnt;	/* scan noise cal counter */
+	uint8	debug_14;
 } phy_periodic_counters_v255_t;
 
 typedef struct phycal_log_cmn {
@@ -2995,13 +3030,88 @@ typedef struct phy_periodic_log_cmn_v255 {
 	bool	phycal_disable;		/* Set if calibration is disabled */
 	bool	hwpwrctrlen;		/* tx hwpwrctrl enable */
 	int8	ed_threshold;		/* Threshold applied for ED */
+	uint32	ed_duration;		/* ccastats: ed_duration */
 	uint16	ed_crs_status;		/* Status of ED and CRS during noise cal */
 	uint16	preempt_status1;	/* status of preemption */
 	uint16	preempt_status2;	/* status of preemption */
 	uint16	preempt_status3;	/* status of preemption */
 	uint16	preempt_status4;	/* status of preemption */
-	uint16	debug_06;
-	uint32	ed_duration;		/* ccastats: ed_duration */
+
+	uint16	timeoutstatus;
+	uint32	measurehold;		/* PHY hold activities */
+	uint16	pktprocdebug;
+	uint16	pktprocdebug2;
+
+	uint16	counter_noise_iqest_to;	/* count of IQ_Est time out */
+	uint16	rfemstate2g;		/* rFEM state register for 2g */
+	uint16	rfemstate5g;		/* rFEM state register for 5g */
+	uint16	txiqcal_max_retry_cnt;	/* txiqlocal retries reached max allowed count */
+	uint16	txiqcal_max_slope_cnt;	/* txiqlocal slope reached max allowed count */
+	uint16	mppc_cal_failed_cnt;	/* MPPC cal failure count */
+
+	uint16	gci_lst_inv_ctr;
+	uint16	gci_lst_rst_ctr;
+	uint16	gci_lst_sem_fail;
+	uint16	gci_lst_rb_state;
+	uint16	gci_lst_pad01;
+	uint16	gci_lst_pad02;
+	uint16	gci_lst_pad03;
+	uint16	gci_lst_pad04;
+	uint16	gci_lst_pad05;
+	uint16	gci_lst_state_mask;
+	uint16	gci_inv_tx;		/* Tx inv cnt */
+	uint16	gci_inv_rx;		/* Rx inv cnt */
+	uint16	gci_rst_tx;		/* gci Tx reset cnt */
+	uint16	gci_rst_rx;		/* gci Rx reset cnt */
+	uint16	gci_sem_fail;
+	uint16	gci_invstate;		/* inv state */
+	uint16	gci_phyctl0;		/* TX_PHYCTL0 */
+	uint16	gci_phyctl2;		/* TX_PHYCTL2 */
+	uint16	gci_ctxtst;		/* S_CTXTST */
+	uint16	gci_chan;		/* GCI channel */
+	uint16	gci_cm;
+	uint16	gci_inv_intr;
+	uint16	gci_rst_intr;
+	uint16	gci_rst_prdc_rx;
+	uint16	gci_rst_wk_rx;
+	uint16	gci_rst_rmac_rx;
+	uint16	gci_rst_tx_rx;
+	uint16	gci_pad01;		/* For additional ucode data */
+	uint16	gci_pad02;		/* For additional ucode data */
+	uint16	gci_pad03;		/* For additional ucode data */
+	uint16	gci_pad04;		/* For additional ucode data */
+
+	uint32	rxsense_disable_req_ch;	/* channel disable requests */
+	uint32	ocl_disable_reqs;	/* OCL disable bitmap */
+
+	int8	rxsense_noise_idx;	/* rxsense detection threshold desense index */
+	int8	rxsense_offset;		/* rxsense min power desense index */
+	uint8	ocl_en_status;		/* OCL requested state and OCL HW state */
+	uint8	lpc_status;		/* Flag to enable/disable LPC, and runtime flag status */
+
+	uint16	rspfrm_ed_txncl_cnt;	/* Response frame not sent due to ED */
+
+	int16	last_cal_temp;
+	uint8	cal_reason;		/* reason for the cal */
+	uint8	cal_suppressed_cntr_ed;	/* counter including ss, mp cals, MSB is current state */
+	uint8	phylog_noise_mode;	/* Noise mode used */
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint8	debug_06;
+	uint8	debug_07;
+	uint8	debug_08;
+	uint8	debug_09;
+	uint8	debug_10;
+
+	uint32	interference_mode;	/* interference mitigation mode */
+	uint32	power_mode;		/* LP/VLP logging */
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint32	debug_11;
+	uint32	debug_12;
+	uint32	debug_13;
+	uint32	debug_14;
+	uint32	debug_15;
 } phy_periodic_log_cmn_v255_t;
 
 typedef struct phy_periodic_log_core {
@@ -3175,10 +3285,11 @@ typedef struct phy_periodic_log_core_v255 {
 	int16	psb;		/* psb read during dccal health check */
 	int16	txcap;		/* Txcap value */
 
-	uint16	debug_01;	/* multipurpose debug register */
-	uint16	debug_02;	/* multipurpose debug register */
-	uint16	debug_03;	/* multipurpose debug register */
-	uint16	debug_04;	/* multipurpose debug register */
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint16	debug_01;
+	uint16	debug_02;
+	uint16	debug_03;
+	uint16	debug_04;
 
 	uint8	pktproc;	/* pktproc read during dccal health check */
 	uint8	baseindxval;	/* TPC Base index */
@@ -3193,6 +3304,25 @@ typedef struct phy_periodic_log_core_v255 {
 	int8	estpwr;		/* tx powerDet value */
 	int8	crsmin_th_idx;	/* idx used to lookup crs min thresholds */
 	int8	debug_05;	/* multipurpose debug register */
+
+	uint16	bad_txbaseidx_cnt;	/* cntr for tx_baseidx=127 in healthcheck */
+	uint16	curr_tssival;	/* TxPwrCtrlInit_path[01].TSSIVal */
+	uint16	pwridx_init;	/* TxPwrCtrlInit_path[01].pwrIndex_init_path[01] */
+	uint16	auxphystats;
+	uint16	phystatsgaininfo;
+	uint16	flexpwrAFE;
+	uint16	flexpwrdig1;
+	uint16	flexpwrdig2;
+	uint16	flexpwrdig3;
+	uint16	flexpwrdig4;
+	uint16	flexgaininfo_A;
+	uint16	debug_06;	/* multipurpose debug register */
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint8	debug_07;
+	uint8	debug_08;
+	uint8	debug_09;
+	uint8	debug_10;
 
 	int8	phy_noise_pwr_array[PHY_NOISE_PWR_ARRAY_SIZE];	/* noise buffer array */
 } phy_periodic_log_core_v255_t;
@@ -3270,6 +3400,38 @@ typedef struct wlc_btc_shared_stats_v2 {
 	uint8	debug_09;
 } wlc_btc_shared_stats_v2_t;
 
+#define BTCX_STATS_PHY_LOGGING_VER255 255u
+typedef struct wlc_btc_shared_stats_v255 {
+	uint32 bt_req_cnt;		/* #BT antenna requests since last stats sampl */
+	uint32 bt_gnt_cnt;		/* #BT antenna grants since last stats sample */
+	uint32 bt_gnt_dur;		/* usec BT owns antenna since last stats sample */
+	uint16 bt_pm_attempt_cnt;	/* PM1 attempts */
+	uint16 bt_succ_pm_protect_cnt;	/* successful PM protection */
+	uint16 bt_succ_cts_cnt;		/* successful CTS2A protection */
+	uint16 bt_wlan_tx_preempt_cnt;	/* WLAN TX Preemption */
+	uint16 bt_wlan_rx_preempt_cnt;	/* WLAN RX Preemption */
+	uint16 bt_ap_tx_after_pm_cnt;	/* AP TX even after PM protection */
+	uint16 bt_crtpri_cnt;		/* Ant grant by critical BT task */
+	uint16 bt_pri_cnt;		/* Ant grant by high BT task */
+	uint16 antgrant_lt10ms;		/* Ant grant duration cnt 0~10ms */
+	uint16 antgrant_lt30ms;		/* Ant grant duration cnt 10~30ms */
+	uint16 antgrant_lt60ms;		/* Ant grant duration cnt 30~60ms */
+	uint16 antgrant_ge60ms;		/* Ant grant duration cnt 60~ms */
+	uint16 ackpwroffset;		/* CoreMask (low8) and ack_pwr_offset (high8) */
+	uint8 prisel_ant_mask;		/* antenna to be used by BT */
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint8	debug_01;
+	uint16	debug_02;
+	uint16	debug_03;
+	uint16	debug_04;
+	uint16	debug_05;
+	uint8	debug_06;
+	uint8	debug_07;
+	uint8	debug_08;
+	uint8	debug_09;
+} wlc_btc_shared_stats_v255_t;
+
 /* BTCX Statistics for PHY Logging */
 typedef struct wlc_btc_stats_phy_logging {
 	uint16 ver;
@@ -3287,6 +3449,15 @@ typedef struct wlc_btc_stats_phy_logging_v2 {
 	uint32 bt_req_type_map;		/* BT Antenna Req types since last stats sample */
 	wlc_btc_shared_stats_v2_t shared;
 } phy_periodic_btc_stats_v2_t;
+
+/* BTCX Statistics for PHY Logging */
+typedef struct wlc_btc_stats_phy_logging_v255 {
+	uint16 ver;
+	uint16 length;
+	uint32 btc_status;		/* btc status log */
+	uint32 bt_req_type_map;		/* BT Antenna Req types since last stats sample */
+	wlc_btc_shared_stats_v255_t shared;
+} phy_periodic_btc_stats_v255_t;
 
 /* OBSS Statistics for PHY Logging */
 typedef struct phy_periodic_obss_stats_v1 {
@@ -3342,7 +3513,7 @@ typedef struct phy_periodic_obss_stats_v255 {
 	uint32	obss_last_read_time;			/* last stats read time */
 	uint16	obss_mit_bw;				/* selected mitigation BW */
 	uint16	obss_stats_cnt;				/* stats count */
-	uint8	obss_mit_mode;				/* mitigation mode */
+	uint8	obss_need_updt;				/* BW update needed flag */
 	uint8	obss_mit_status;			/* obss mitigation status */
 	uint8	obss_curr_det[ACPHY_OBSS_SUBBAND_CNT];	/* obss curr detection */
 	uint16	dynbw_init_reducebw_cnt;		/*
@@ -3357,6 +3528,11 @@ typedef struct phy_periodic_obss_stats_v255 {
 							 * rx data cnt with reduced bandwidth
 							 * as txcts requested
 							 */
+	uint16	obss_mmt_skip_cnt;			/* mmt skipped due to powersave */
+	uint16	obss_mmt_no_result_cnt;			/* mmt with no result */
+	uint16	obss_mmt_intr_err_cnt;			/* obss reg mismatch between ucode and fw */
+	uint8	obss_last_rec_bw;			/* last recommended bw to wlc-Sent to SW */
+	uint8	debug01;
 } phy_periodic_obss_stats_v255_t;
 
 /* SmartCCA related PHY Logging */
@@ -3536,63 +3712,57 @@ typedef struct phy_periodic_scca_stats_v3 {
 
 /* SmartCCA related PHY Logging */
 typedef struct phy_periodic_scca_stats_v255 {
-	uint32 asym_intf_cmplx_pwr[2];
-	uint32 asym_intf_ncal_time;
-	uint32 asym_intf_host_req_mit_turnon_time;
-	uint32 core1_smask_val_bk;	/* bt fem control related */
-	int32 asym_intf_ed_thresh;
+	uint32	asym_intf_ncal_time;
+	uint32	asym_intf_host_req_mit_turnon_time;
+	int32	asym_intf_ed_thresh;
 
-	int16 crsminpoweru0;			/* crsmin thresh */
-	int16 crsminpoweroffset0;		/* ac_offset core0 */
-	int16 crsminpoweroffset1;		/* ac_offset core1 */
-	int16 Core0InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 Core1InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 ed_crsEn;				/* phyreg(ed_crsEn) */
-	int16 nvcfg0;				/* LLR deweighting coefficient */
-	int16 SlnaRxMaskCtrl0;
-	int16 SlnaRxMaskCtrl1;
-	uint16 save_SlnaRxMaskCtrl0;
-	uint16 save_SlnaRxMaskCtrl1;
-	uint16 asym_intf_ncal_req_chspec;	/* channel request noisecal */
+	int16	crsminpoweru0;			/* crsmin thresh */
+	int16	crsminpoweroffset0;		/* ac_offset core0 */
+	int16	crsminpoweroffset1;		/* ac_offset core1 */
+	int16	ed_crsEn;			/* phyreg(ed_crsEn) */
+	int16	nvcfg0;				/* LLR deweighting coefficient */
+	int16	SlnaRxMaskCtrl0;
+	int16	SlnaRxMaskCtrl1;
+	int16	CRSMiscellaneousParam;
+	int16	AntDivConfig2059;
+	int16	HPFBWovrdigictrl;
+	uint16	save_SlnaRxMaskCtrl0;
+	uint16	save_SlnaRxMaskCtrl1;
+	uint16	asym_intf_ncal_req_chspec;	/* channel request noisecal */
 	/* asym_intf_stats includes the following bits:
-	* b[0]:   bool asym_intf_rx_noise_mit_on;
-	* b[1]:   bool asym_intf_tx_smartcca_on;
-	* b[3:2]: bool asym_intf_elna_bypass[2];
-	* b[4]:   bool asym_intf_valid_noise_samp;
-	* b[5]:   bool asym_intf_fill_noise_buf;
-	* b[6]:   bool asym_intf_ncal_discard;
-	* b[7]:   bool slna_reg_saved;
-	* b[8]:   bool asym_intf_host_ext_usb;		//Host control related variable
-	* b[9]:   bool asym_intf_host_ext_usb_chg;	// Host control related variable
-	* b[10]:  bool asym_intf_host_en;		// Host control related variable
-	* b[11]:  bool asym_intf_host_enable;
-	* b[12]:  bool asym_intf_pending_host_req;	// Set request pending if clk not present
+	* b[0]:   bool asym_intf_rx_noise_mit_on;	// SmartCCA Rx mititagion enabled
+	* b[1]:   bool asym_intf_tx_smartcca_on;	// SmartCCA Tx mititagion enabled
+	* b[2]:   bool asym_intf_valid_noise_samp;	// Latest noise sample is valid
+	* b[3]:   bool asym_intf_fill_noise_buf;	// Fill the same sample to entire buffer
+	* b[4]:   bool asym_intf_ncal_discard;		// Discard current noise sample
+	* b[5]:   bool slna_reg_saved;			// SLNA register values are saved
+	* b[6]:   bool asym_intf_host_ext_usb;		// Host control related variable
+	* b[7]:   bool asym_intf_host_ext_usb_chg;	// Host control related variable
+	* b[8]:   bool asym_intf_host_en;		// Host control related variable
+	* b[9]:   bool asym_intf_host_enable;		// Host control related variable
+	* b[10]:  bool asym_intf_pending_host_req;	// Set request pending if clk not present
 	*/
-	uint16 asym_intf_stats;
+	uint16	asym_intf_stats;
 
-	uint8 elna_bypass;	/* from bt_desense.elna_bypass in gainovr_shm_config() */
-	uint8 btc_mode;		/* from bt_desense in gainovr_shm_config() */
-	/* noise at antenna from phy_ac_noise_ant_noise_calc() */
-	int8 noise_dbm_ant[2];
-	/* in phy_ac_noise_calc(), also used by wl noise */
-	int8 noisecalc_cmplx_pwr_dbm[2];
-	uint8 gain_applied;		/* from phy_ac_rxgcrs_set_init_clip_gain() */
+	uint8	btc_mode;			/* from bt_desense in gainovr_shm_config() */
 
-	int8 asym_intf_tx_smartcca_cm;
-	int8 asym_intf_rx_noise_mit_cm;
-	int8 asym_intf_avg_noise[2];
-	int8 asym_intf_latest_noise[2];
+	/* noise at antenna from phy_ac_noise_calc() */
+	int8	noisecalc_cmplx_pwr_dbm[2];
+	int8	asym_intf_ant_noise[2];
+
+	int8	asym_intf_tx_smartcca_cm;
+	int8	asym_intf_rx_noise_mit_cm;
+	int8	asym_intf_avg_noise[2];
+	int8	asym_intf_latest_noise[2];
 	/* used to calculate noise_delta for rx mitigation on/off */
-	int8 asym_intf_prev_noise_lvl[2];
-	uint8 asym_intf_noise_calc_gain_2g[2];
-	uint8 asym_intf_noise_calc_gain_5g[2];
-	uint8 asym_intf_ant_noise_idx;
-	uint8 asym_intf_least_core_idx;
-	uint8 phy_crs_thresh_save[2];
-	uint8 asym_intf_initg_desense[2];
-	uint8 asym_intf_pending_host_req_type;	/* Set request pending if clk not present */
-	uint16	asym_intf_ncal_crs_stat[12];
+	int8	asym_intf_prev_noise_lvl[2];
+	uint8	asym_intf_ant_noise_idx;
+	uint8	asym_intf_least_core_idx;
+	uint8	asym_intf_pending_host_req_type;
+						/* Set request pending if clk not present */
+	uint16	asym_intf_ncal_crs_stat;
 	uint8	asym_intf_ncal_crs_stat_idx;
+	uint8	pad;
 } phy_periodic_scca_stats_v255_t;
 
 #define PHY_PERIODIC_LOG_VER1         (1u)
@@ -4459,7 +4629,7 @@ typedef struct phy_periodic_log_v255 {
 	phy_periodic_counters_v255_t counters_peri_log;
 
 	/* log data for BTcoex */
-	phy_periodic_btc_stats_v1_t phy_perilog_btc_stats;
+	phy_periodic_btc_stats_v255_t phy_perilog_btc_stats;
 
 	/* log data for obss/dynbw */
 	phy_periodic_obss_stats_v255_t phy_perilog_obss_stats;

@@ -1,7 +1,7 @@
 /*
  * Driver O/S-independent utility routines
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -23,7 +23,17 @@
 
 #include <typedefs.h>
 #include <bcmdefs.h>
+
+#if defined(CONFIG_BCMDHD) && defined(__linux__)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 #include <linux/stdarg.h>
+#else
+#include <stdarg.h>
+#endif /* LINUX_VERSION_CODE */
+#else
+#include <stdarg.h>
+#endif /* CONFIG_BCMDHD && __linux__ */
+
 #ifdef BCMDRIVER
 #include <osl.h>
 #include <bcmutils.h>
@@ -69,6 +79,8 @@
 #ifdef BCMPERFSTATS
 #include <bcmperf.h>
 #endif
+
+#include <event_log_payload.h>
 
 #define NUMBER_OF_BITS_BYTE	8u
 
@@ -1190,11 +1202,9 @@ dscp2up(uint8 *up_table, uint8 dscp)
 		user_priority = up_table[dscp];
 	}
 
-	if (user_priority == 255) {	/* unknown user priority */
-		/* If the user_priority from the QoS Map table is unknown(i.e., 255), then
-		 * set the default user priority as PRIO_8021D_BE(0); Reference RFC 8325.
-		 */
-		user_priority = PRIO_8021D_BE; /* default priority */
+	/* 255 is unused value so return up from dscp */
+	if (user_priority == 255) {
+		user_priority = dscp >> (IPV4_TOS_PREC_SHIFT - IPV4_TOS_DSCP_SHIFT);
 	}
 
 	return user_priority;
@@ -6251,3 +6261,164 @@ BCMPOSTTRAPFN(print_string)(const char *str)
 	return printf(bcm_print_string, str);
 }
 #endif /* DONGLEBUILD */
+
+#ifdef DBG_SEQ_LOG
+#define DBG_SEQ_SEQ_LOG_MAX 10000u
+
+#define DBG_SEQ_SEQ_START (1u << 12u)
+#define DBG_SEQ_SEQ_END   (1u << 13u)
+#define DBG_SEQ_SEQ_MASK   0xFFFu
+
+#define DBG_SEQ_SEQ_INC_UPDATE(id, seq, flags) \
+	do { \
+		g_dbg_seq_seq_idx[id]++; \
+		g_dbg_seq_seq_idx[id] %= DBG_SEQ_SEQ_LOG_MAX; \
+		g_dbg_seq_seq[id][g_dbg_seq_seq_idx[id]] = (seq & DBG_SEQ_SEQ_MASK) | flags; \
+	} while (0)
+
+uint16 g_dbg_seq_last_seq[DBG_SEQ_LOG_ID_MAX] = {0};
+uint16 g_dbg_seq_seq_exp[DBG_SEQ_LOG_ID_MAX] = {0};
+uint16 g_dbg_seq_seq_idx[DBG_SEQ_LOG_ID_MAX] = {0};
+uint16 g_dbg_seq_seq[DBG_SEQ_LOG_ID_MAX][DBG_SEQ_SEQ_LOG_MAX] = {0};
+uint32 g_dbg_seq_pkt[DBG_SEQ_SEQ_LOG_MAX] = {0};
+uint32 g_dbg_seq_pkt_prev_free[DBG_SEQ_SEQ_LOG_MAX] = {0};
+
+/**
+ * @brief Function to log the sequence numbers in a compreesed or uncompressed format.
+ *
+ * @param[in] id    Debug module ID. Refer to dbg_seq_log_id_t for possible values.
+ * @param[in] seq   Sequence number to log
+ * @param[in] arg1  User specific argument 1 to log
+ * @param[in] arg2  User specific argument 2 to log
+ */
+void dbg_seq_log_seq(dbg_seq_log_id_t id, uint16 seq, void *arg1, void *arg2)
+{
+#if DBG_SEQ_LOG_COMPRESSED
+	/* Storing the sequence numbers in compressed format */
+	if ((g_dbg_seq_seq[id][g_dbg_seq_seq_idx[id]] & DBG_SEQ_SEQ_START) &&
+			!(g_dbg_seq_seq[id][g_dbg_seq_seq_idx[id]] & DBG_SEQ_SEQ_END)) {
+		/* Continuation of the previous contigous logging */
+		if ((seq != g_dbg_seq_seq_exp[id]) || (seq == 0)) {
+			/* If we have received a dicontigous seq number or seq number restart then
+			 * close the logging and start new logging. If the seq numbers are
+			 * contigous, then we don't come here.
+			 */
+			if ((g_dbg_seq_seq[id][g_dbg_seq_seq_idx[id]] & DBG_SEQ_SEQ_MASK) ==
+					g_dbg_seq_last_seq[id]) {
+				/* If the contigous seq number count is just 1, then close the
+				 * current logging in the same index and start a new one.
+				 */
+				g_dbg_seq_seq[id][g_dbg_seq_seq_idx[id]] |= DBG_SEQ_SEQ_END;
+			} else {
+				/* If the contigous seq number count is > 1, then close the
+				 * current logging in the next index and start a new one.
+				 */
+				DBG_SEQ_SEQ_INC_UPDATE(id, g_dbg_seq_last_seq[id], DBG_SEQ_SEQ_END);
+			}
+			DBG_SEQ_SEQ_INC_UPDATE(id, seq, DBG_SEQ_SEQ_START);
+		}
+	} else {
+		/* Starting a fresh logging */
+		DBG_SEQ_SEQ_INC_UPDATE(id, seq, DBG_SEQ_SEQ_START);
+	}
+
+	g_dbg_seq_last_seq[id] = seq;
+	g_dbg_seq_seq_exp[id] = MODINC_POW2(seq, SEQNUM_MAX);
+#else
+	/* Storing the sequence numbers in un-compressed format */
+	DBG_SEQ_SEQ_INC_UPDATE(id, seq, (DBG_SEQ_SEQ_START | DBG_SEQ_SEQ_END));
+	g_dbg_seq_last_seq[id] = seq;
+
+	if (id == DBG_SEQ_LOG_ID_RX) {
+		g_dbg_seq_pkt[g_dbg_seq_seq_idx[id]] = (uint32)arg1;
+		g_dbg_seq_pkt_prev_free[g_dbg_seq_seq_idx[id]] = (uint32)arg2;
+	}
+#endif /* DBG_SEQ_LOG_COMPRESSED */
+}
+#endif /* DBG_SEQ_LOG */
+
+/* To be used in computing timestamps on log records. Applicable to dumps carrying
+ * enhanced timestamp records
+ * inputs:
+ * The latest Enhanced timestamp versioned message
+ * Log record time as a 64-bit value
+ * output:
+ * FW time of log record in ns
+ */
+
+#define BCMUTILS_EVENT_LOG_TS_CPU_FREQUENCY_MULTIPLE 1000u
+
+/* Adapted from version 1 timestamp computation in logprint.c:process_event_log_data() */
+static uint64
+bcmutils_event_log_compute_current_time_v1(ets_msg_t *ets_msg, uint32 log_record_time)
+{
+	uint32 base_cycles;
+	uint32 cpu_freq;
+	uint64 base_time;
+	int64 cycle_count_offset;
+
+	ets_msg_v1_t *ets_msg_v1 = (ets_msg_v1_t *)ets_msg;
+
+	/* ets_msg_v1->cyclecount is the ARM cycle count */
+	base_cycles = ets_msg_v1->cyclecount;
+	cpu_freq = ets_msg_v1->cpu_freq * BCMUTILS_EVENT_LOG_TS_CPU_FREQUENCY_MULTIPLE;
+
+	/* ets_msg_v1->timestamp is in ms and holds sys up time */
+	base_time = ets_msg_v1->timestamp;
+
+	cycle_count_offset = log_record_time - base_cycles;
+	if (cycle_count_offset >= 0) {
+		base_time += (log_record_time - base_cycles)/cpu_freq;
+	} else {
+		/* Negative cycle_count_offset == counter wrapped */
+		base_time += (log_record_time +
+				(0xffffffff - base_cycles))/cpu_freq;
+	}
+
+	/* basetime is in ms. convert to uint64 and return */
+	return base_time;
+}
+
+static uint64
+bcmutils_event_log_compute_current_time_v2(ets_msg_t *ets_msg, uint64 q4_log_record_time)
+{
+	ets_msg_v2_t *ets_msg_v2 = (ets_msg_v2_t *)ets_msg->data;
+	uint64 ets_msg_40bit_ptm_time = ets_msg_v2->ets_write_ptm_time & 0xFFFFFFFFFFULL;
+	uint64 el_40bit_log_record_time = q4_log_record_time << 8;
+
+	uint64 delta_time;
+
+	/* Corner case. The top 40 bits match indicating logging happened in the same time unit
+	 * as recorded RAW PTM time in the ETS message.
+	 */
+	if (q4_log_record_time == (ets_msg_40bit_ptm_time >> 8)) {
+		delta_time = 0;
+	} else {
+		delta_time = (el_40bit_log_record_time - ets_msg_40bit_ptm_time) &
+			0xFFFFFFFFFFULL;
+	}
+	return ets_msg_v2->sysuptime_ns + delta_time;
+}
+
+int
+bcmutils_event_log_compute_current_time(void *ets_msg, uint64 log_record_time, uint64 *current_time)
+{
+	ets_msg_t *ets_msg_ptr = (ets_msg_t *)ets_msg;
+
+	if (ets_msg_ptr == NULL) {
+		return BCME_ERROR;
+	}
+
+	if (ets_msg_ptr->version == ENHANCED_TS_MSG_VERSION_1) {
+		/* log record time is a 32-bit ARM cycle count */
+		*current_time = bcmutils_event_log_compute_current_time_v1(ets_msg_ptr,
+			(uint32) log_record_time);
+	} else if (ets_msg_ptr->version == ENHANCED_TS_MSG_VERSION_2) {
+		*current_time = bcmutils_event_log_compute_current_time_v2(ets_msg_ptr,
+			log_record_time);
+	} else {
+		return BCME_VERSION;
+	}
+
+	return BCME_OK;
+}

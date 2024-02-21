@@ -1,7 +1,7 @@
 /*
  * Expose some of the kernel scheduler routines
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -31,7 +31,22 @@
 int setScheduler(struct task_struct *p, int policy, struct sched_param *param)
 {
 	int rc = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0))
+	switch (policy) {
+		case SCHED_FIFO:
+			sched_set_fifo(p);
+			break;
+		case SCHED_NORMAL:
+			sched_set_normal(p, param->sched_priority);
+			break;
+		default:
+			printk("%s: invalid policy:%d\n", __func__, policy);
+			rc = -1;
+			break;
+	}
+#else
 	rc = sched_setscheduler(p, policy, param);
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0) */
 	return rc;
 }
 

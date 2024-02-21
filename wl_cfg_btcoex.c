@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver - Dongle Host Driver (DHD) related
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -386,7 +386,8 @@ static void wl_cfg80211_bt_handler(struct work_struct *work)
 				WL_TRACE(("DHCP wait interval T2:%d msec expired\n",
 					BT_DHCP_FLAG_FORCE_TIME));
 			}
-			fallthrough;
+			/* Pass through */
+			BCM_FALLTHROUGH;
 		default:
 			if (btcx_inf->bt_state != BT_DHCP_FLAG_FORCE_TIMEOUT) {
 				WL_ERR(("Error BT DHCP status=%d!!!\n", btcx_inf->bt_state));

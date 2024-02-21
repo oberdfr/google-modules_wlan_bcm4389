@@ -1,7 +1,7 @@
 /*
  * DHD debugability header file
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -785,6 +785,8 @@ typedef struct {
 
 #define DHD_EVENT_LOG_FMT_NUM_OFFSET 2
 #define DHD_EVENT_LOG_FMT_NUM_MASK 0x3FFF
+
+#define DHD_EXT_FMTNUM_MASK 0xF /* bits[3..0] used */
 /**
  * OW:- one word
  * TW:- two word

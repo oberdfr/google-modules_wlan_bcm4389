@@ -1,7 +1,7 @@
 /*
  * Linux platform device for DHD WLAN adapter
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -325,11 +325,11 @@ void *wifi_platform_get_country_code(wifi_adapter_info_t *adapter, char *ccode)
 
 static int wifi_plat_dev_drv_probe(struct platform_device *pdev)
 {
+	struct resource *resource;
 	wifi_adapter_info_t *adapter;
 #ifdef CONFIG_DTS
 	int irq, gpio;
 #endif /* CONFIG_DTS */
-	int wlan_irq;
 
 	/* Android style wifi platform data device ("bcmdhd_wlan" or "bcm4329_wlan")
 	 * is kept for backward compatibility and supports only 1 adapter
@@ -339,12 +339,12 @@ static int wifi_plat_dev_drv_probe(struct platform_device *pdev)
 	adapter = &dhd_wifi_platdata->adapters[0];
 	adapter->wifi_plat_data = (struct wifi_platform_data *)(pdev->dev.platform_data);
 
-	wlan_irq = platform_get_irq_byname(pdev, "bcmdhd_wlan_irq");
-	if (wlan_irq < 0)
-		wlan_irq = platform_get_irq_byname(pdev, "bcm4329_wlan_irq");
-	if (wlan_irq >= 0) {
-		adapter->irq_num = wlan_irq;
-		adapter->intr_flags = irq_get_trigger_type(wlan_irq);
+	resource = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "bcmdhd_wlan_irq");
+	if (resource == NULL)
+		resource = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "bcm4329_wlan_irq");
+	if (resource) {
+		adapter->irq_num = resource->start;
+		adapter->intr_flags = resource->flags & IRQF_TRIGGER_MASK;
 #ifdef DHD_ISR_NO_SUSPEND
 		adapter->intr_flags |= IRQF_NO_SUSPEND;
 #endif
@@ -468,9 +468,11 @@ static int wifi_platdev_match(struct device *dev, const void *data)
 static int wifi_platdev_match(struct device *dev, void *data)
 #endif /* LINUX_VER >= 5.3.0 */
 {
-	char *name = (char*)data;
+	char *name;
 	const struct platform_device *pdev;
+
 	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+	name = (char*)data;
 	pdev = to_platform_device(dev);
 	GCC_DIAGNOSTIC_POP();
 

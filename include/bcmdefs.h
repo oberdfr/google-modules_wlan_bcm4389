@@ -1,7 +1,7 @@
 /*
  * Misc system wide definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2024, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -50,6 +50,18 @@
 #define BCM_UNUSED_VAR
 #endif
 
+/* Linux kenrel already defined "fallthrough" as macro
+ * so, GCC_SUPPRESS_FALLTHROUGH_WARNIN macro could not be used in driver
+ * GCC supports the __fallthrough__ attribute since 7.1.
+ * Clang supports the __fallthrough__ Statement Attributes since 10.0.0
+ */
+#if (defined(__GNUC__) && (__GNUC__ > 7 || (__GNUC__ == 7 && __GNUC_MINOR__ >= 1)) || \
+	(defined(__clang__) && __clang_major__ >= 10))
+#define BCM_FALLTHROUGH __attribute__ ((__fallthrough__))
+#else
+#define BCM_FALLTHROUGH
+#endif /* __GNUC__ */
+
 /* GNU GCC 4.6+ supports selectively turning off a warning.
  * Define these diagnostic macros to help suppress cast-qual warning
  * until all the work can be done to fix the casting issues.
@@ -76,6 +88,26 @@
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST()
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_NULL_DEREF()
 #define GCC_DIAGNOSTIC_POP()
+#endif   /* Diagnostic macros not defined */
+
+#if (defined(__GNUC__) && defined(STRICT_GCC_WARNINGS) && (__GNUC__ > 8 || (__GNUC__ == \
+	8 && __GNUC_MINOR__ >= 1)) || defined(__clang__))
+
+#if !defined(__clang__) || __clang_major__ >= 13
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
+	_Pragma("GCC diagnostic push")			 \
+	_Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
+#else
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
+	_Pragma("GCC diagnostic push")
+#endif // !__clang__ || __clang_major__ >= 13
+
+#elif defined(_MSC_VER)
+
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
+	__pragma(warning(push))
+#else
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()
 #endif   /* Diagnostic macros not defined */
 
 /* Macros to allow Coverity modeling contructs in source code */
