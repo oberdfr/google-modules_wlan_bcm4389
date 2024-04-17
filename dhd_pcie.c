@@ -1366,6 +1366,52 @@ dhd_bus_dump_imp_cfg_registers(struct dhd_bus *bus)
 		PCIECFGGEN_DEV_STATUS_CTRL2, devctl2));
 }
 
+int
+dhdpcie_check_for_cto(dhd_bus_t *bus)
+{
+	uint32 intstatus = 0;
+	/* read pci_intstatus */
+	intstatus = dhdpcie_bus_cfg_read_dword(bus, PCI_INT_STATUS, 4);
+
+	if (intstatus == (uint32)-1 ||
+		bus->dhd->dhd_induce_error == DHD_INDUCE_PCIE_LINK_DOWN_IN_ISR) {
+		DHD_CONS_ONLY(("%s: Invalid cfg intstatus(0x%x):0x%x, "
+			"pcie link down, dhd_induce_error %u\n", __FUNCTION__,
+			PCI_INT_STATUS, intstatus, bus->dhd->dhd_induce_error));
+		dhd_bus_set_linkdown(bus->dhd, TRUE);
+		dhd_pcie_debug_info_dump(bus->dhd);
+#if defined(CONFIG_ARCH_MSM) && defined(SUPPORT_LINKDOWN_RECOVERY)
+		bus->no_cfg_restore = 1;
+#endif /* CONFIG_ARCH_MSM && SUPPORT_LINKDOWN_RECOVERY */
+		bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_EP_DETECT;
+#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
+		copy_hang_info_linkdown(bus->dhd);
+#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
+		dhd_os_send_hang_message(bus->dhd);
+		return BCME_ERROR;
+	}
+
+	if (intstatus & PCI_CTO_INT_MASK) {
+		DHD_CONS_ONLY(("%s: ##### CTO REPORTED BY DONGLE "
+			"intstat=0x%x enab=%d\n", __FUNCTION__,
+			intstatus, bus->cto_enable));
+		bus->cto_triggered = 1;
+		bus->dhd->do_chip_bighammer = TRUE;
+		dhd_bus_dump_imp_cfg_registers(bus);
+		/*
+		 * DAR still accessible
+		 */
+		dhd_bus_dump_dar_registers(bus);
+	
+		/* Stop Tx flow */
+		dhd_bus_stop_queue(bus);
+	
+		dhd_schedule_cto_recovery(bus->dhd);
+		return BCME_ERROR;
+	}
+	return BCME_OK;
+}
+
 /**
  * Name:  dhdpcie_bus_isr
  * Parameters:
@@ -1413,58 +1459,24 @@ dhdpcie_bus_isr(dhd_bus_t *bus)
 			break;
 		}
 
+		/*
+		 * For MSI case, skip reading chip intstatus as
+		 * well as cfg intstatus (for CTO) from ISR.
+		 * The cfg intstatus will be read in DPC.
+		 */
+		if (bus->d2h_intr_method == PCIE_MSI) {
+			/* For MSI, as intstatus is cleared by firmware, no need to read */
+			goto skip_intstatus_read;
+		}
+
 		if (PCIECTO_ENAB(bus)) {
-			/* read pci_intstatus */
-			intstatus = dhdpcie_bus_cfg_read_dword(bus, PCI_INT_STATUS, 4);
-
-			if (intstatus == (uint32)-1 ||
-				bus->dhd->dhd_induce_error == DHD_INDUCE_PCIE_LINK_DOWN_IN_ISR) {
-				DHD_ERROR(("%s: Invalid cfg intstatus(0x%x):0x%x, pcie link down,"
-					"induce %u\n", __FUNCTION__, PCI_INT_STATUS, intstatus,
-					bus->dhd->dhd_induce_error));
-				bus->is_linkdown = 1;
-				dhdpcie_disable_irq_nosync(bus);
-				dhd_pcie_debug_info_dump(bus->dhd);
-#if defined(CONFIG_ARCH_MSM) && defined(SUPPORT_LINKDOWN_RECOVERY)
-				bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM && SUPPORT_LINKDOWN_RECOVERY */
-				bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_EP_DETECT;
-#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
-				copy_hang_info_linkdown(bus->dhd);
-#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-				dhd_os_send_hang_message(bus->dhd);
-				break;
-			}
-
-			if (intstatus & PCI_CTO_INT_MASK) {
-				DHD_ERROR(("%s: ##### CTO RECOVERY REPORTED BY DONGLE "
-					"intstat=0x%x enab=%d\n", __FUNCTION__,
-					intstatus, bus->cto_enable));
-				bus->cto_triggered = 1;
-				bus->dhd->do_chip_bighammer = TRUE;
-				dhd_bus_dump_imp_cfg_registers(bus);
-				/*
-				 * DAR still accessible
-				 */
-				dhd_bus_dump_dar_registers(bus);
-
+			if (dhdpcie_check_for_cto(bus) != BCME_OK) {
 				/* Disable further PCIe interrupts */
 #ifndef NDIS
 				dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
 #endif
-				/* Stop Tx flow */
-				dhd_bus_stop_queue(bus);
-
-				/* Schedule CTO recovery */
-				dhd_schedule_cto_recovery(bus->dhd);
-
-				return TRUE;
+				break;
 			}
-		}
-
-		if (bus->d2h_intr_method == PCIE_MSI) {
-			/* For MSI, as intstatus is cleared by firmware, no need to read */
-			goto skip_intstatus_read;
 		}
 
 		intstatus = dhdpcie_bus_intstatus(bus);
@@ -1530,6 +1542,8 @@ skip_intstatus_read:
 		DHD_OS_WAKE_UNLOCK(bus->dhd);
 #else
 		bus->dpc_sched = TRUE;
+		/* Reset dpc_resched, which will be set only if tasklet got rescheduled by itself */
+		bus->dpc_resched = FALSE;
 		bus->isr_sched_dpc_time = OSL_LOCALTIME_NS();
 #ifndef NDIS
 		dhd_sched_dpc(bus->dhd);     /* queue DPC now!! */
@@ -12717,6 +12731,15 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 		}
 	}
 
+	/* For MSI case, check for CTO vi cfg INTSTATUS from DPC for non rescheduled case,
+	 * to avoid more time in ISR.
+	 */
+	if ((bus->d2h_intr_method == PCIE_MSI) && !bus->dpc_resched) {
+		if (dhdpcie_check_for_cto(bus) != BCME_OK) {
+			return 0;
+		}
+	}
+
 	/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
 	 * using dongle intmask to control INTR enable/disable
 	 */
@@ -12775,6 +12798,7 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	dhd_histo_update(bus->dhd, bus->dpc_time_histo, (uint32)bus->dpc_time_usec);
 
 	bus->dpc_sched = resched;
+	bus->dpc_resched = resched;
 #ifdef DHD_FLOW_RING_STATUS_TRACE
 	if (bus->dhd->dma_h2d_ring_upd_support && bus->dhd->dma_d2h_ring_upd_support &&
 			(bus->dhd->ring_attached == TRUE)) {
