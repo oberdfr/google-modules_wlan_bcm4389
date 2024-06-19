@@ -309,7 +309,8 @@ DHDCFLAGS += -DWL_CH_SWITCH_BKPORT
 # Enable pktid logging
 DHDCFLAGS += -DDHD_MAP_PKTID_LOGGING
 # Skip coredump for certain health check traps
-DHDCFLAGS += -DDHD_SKIP_COREDUMP_ON_HC
+# temporary enable it for the check
+#DHDCFLAGS += -DDHD_SKIP_COREDUMP_ON_HC
 # CROSS AKM related back port changes
 DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
 else
